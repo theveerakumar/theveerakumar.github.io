@@ -108,6 +108,14 @@ html {
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.2);
 }
 /*---End Intro Positon ----*/
+
+/*---Start Center Flex----*/
+.centerFlex {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
+/*---End Center Flex----*/
 .home-inner{
   background-image: transparent;
 }

@@ -110,10 +110,9 @@ html {
 /*---End Intro Positon ----*/
 
 /*---Start Center Flex----*/
-.centerFlex {
-  align-items: center;
-  display: flex;
-  justify-content: center;
+. wraptext{
+width : 40vw;
+overflow-wrap: break-word;
 }
 /*---End Center Flex----*/
 .home-inner{

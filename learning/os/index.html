@@ -1,0 +1,1830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OS Interactive Lab</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Cascadia Code','Fira Code','Courier New',monospace}
+:root{--bg:#0a0e14;--surface:#0f1620;--border:#1a2332;--text:#b3b1ad;--green:#b8cc52;--cyan:#95e6cb;--yellow:#f9c440;--red:#ff6c6c;--dim:#525a66;--prompt:#f9c440;--highlight:rgba(184,204,82,0.12);--timing:0.02s}
+body{background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.header-title{color:var(--green);font-size:13px;font-weight:bold}
+.header-title span{color:var(--dim)}
+.header-nav{display:flex;gap:16px;font-size:12px}
+.header-nav a{color:var(--dim);text-decoration:none}
+.header-nav a:hover{color:var(--cyan)}
+#terminal{flex:1;overflow-y:auto;padding:12px 16px 0;scroll-behavior:smooth}
+#terminal::-webkit-scrollbar{width:6px}
+#terminal::-webkit-scrollbar-track{background:var(--surface)}
+#terminal::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.line{margin-bottom:2px;line-height:1.5;white-space:pre-wrap;word-break:break-word;animation:fadeIn 0.15s ease-out}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.line.prompt-line{color:var(--prompt);font-weight:bold}
+.line.error{color:var(--red)}
+.line.info{color:var(--dim)}
+.line.success{color:var(--green)}
+.line.cyan{color:var(--cyan)}
+.line.yellow{color:var(--yellow)}
+.line.dim{color:var(--dim)}
+.line.bold{font-weight:bold}
+.line.lg{font-size:1.1em;margin:6px 0}
+.line.section{color:var(--green);font-weight:bold;font-size:1.1em;margin:10px 0 4px;letter-spacing:0.5px}
+.line.subsection{color:var(--cyan);margin:6px 0 2px}
+.line.diagram{color:var(--dim);font-size:0.85em;line-height:1.2;margin:4px 0}
+.line.code{color:var(--yellow);font-size:0.85em;padding:6px 12px;margin:4px 0;border-left:2px solid var(--border);background:var(--highlight);border-radius:0 4px 4px 0}
+.line.divider{color:var(--border);margin:6px 0}
+.line.tldr{color:var(--yellow);font-style:italic;margin:8px 0 4px;padding:6px 12px;border:1px dashed var(--border);border-radius:4px}
+.line.highlight{background:var(--highlight);padding:4px 8px;border-radius:4px;margin:4px 0}
+.line.typing{overflow:hidden;border-right:2px solid var(--green);animation:typing 0.8s steps(40,end),blinkCaret 0.75s step-end infinite;max-width:fit-content}
+.line.animate-bar{display:inline-block;height:14px;background:var(--green);margin-right:2px;border-radius:2px;animation:growBar 0.5s ease-out forwards;transform-origin:bottom}
+@keyframes growBar{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes blinkCaret{50%{border-color:transparent}}
+.cursor-blink{animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+.input-area{display:flex;align-items:center;padding:8px 16px 14px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;gap:8px}
+.input-area .prompt{color:var(--prompt);font-size:14px;user-select:none}
+.input-area input{flex:1;background:transparent;border:none;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+.input-area input::placeholder{color:var(--dim);font-size:12px}
+.suggestions{font-size:11px;color:var(--dim);padding:0 16px 4px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;flex-shrink:0}
+.suggestions span{cursor:pointer}
+.suggestions span:hover{color:var(--cyan)}
+.progress-bar{display:flex;gap:2px;align-items:end;height:30px;padding:4px 0}
+.progress-bar .bar{width:24px;border-radius:3px 3px 0 0;animation:growBar 0.4s ease-out forwards}
+@media(max-width:600px){.header-nav{display:none}#terminal{padding:8px 10px}.line{font-size:0.9em}}
+</style>
+</head>
+<body>
+
+<div class="header">
+<div class="header-title">OS Interactive Lab <span>— explore, experiment, understand</span></div>
+<div class="header-nav"><a href="https://veerakumar.com">veerakumar.com</a><a href="https://github.com/theveerakumar">github</a></div>
+</div>
+
+<div id="terminal"></div>
+
+<div class="suggestions" id="suggestions">
+<span onclick="run('help')">help</span>
+<span onclick="run('foundation')">foundation</span>
+<span onclick="run('architecture')">architecture</span>
+<span onclick="run('boot')">boot</span>
+<span onclick="run('process')">process</span>
+<span onclick="run('schedule')">schedule</span>
+<span onclick="run('threads')">threads</span>
+<span onclick="run('memory')">memory</span>
+<span onclick="run('filesystem')">filesystem</span>
+<span onclick="run('virtualization')">virtualization</span>
+<span onclick="run('diagram')">diagram</span>
+</div>
+
+<div class="input-area">
+<span class="prompt">$</span>
+<input type="text" id="cmd" placeholder="type a command or try help" autofocus spellcheck="false" autocomplete="off">
+</div>
+
+<script>
+const term = document.getElementById('terminal');
+const input = document.getElementById('cmd');
+
+function scrollBottom() { setTimeout(() => { term.scrollTop = term.scrollHeight; }, 20); }
+
+function w(text, cls = '') {
+  const d = document.createElement('div');
+  d.className = 'line' + (cls ? ' ' + cls : '');
+  d.innerHTML = text;
+  term.appendChild(d);
+  scrollBottom();
+}
+
+function writeLines(lines) {
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      if (typeof l === 'string') w(l);
+      else w(l[0], l[1] || '');
+      if (i === lines.length - 1) scrollBottom();
+    }, i * 25);
+  });
+}
+
+function divider() { return ['─'.repeat(60), 'divider']; }
+
+function section(title) { return ['<span style="color:var(--green)">■</span> ' + title, 'section']; }
+
+function subsection(title) { return [title, 'subsection']; }
+
+function codeBlock(lines) {
+  const code = lines.map(l => '  ' + l).join('\n');
+  return [code, 'code'];
+}
+
+function diagramBlock(lines) {
+  return [lines.join('\n'), 'diagram'];
+}
+
+function tldr(text) {
+  return ['<span style="color:var(--yellow)">⚡</span> ' + text, 'tldr'];
+}
+
+function note(text) {
+  return [text, 'dim'];
+}
+
+const topics = {};
+
+topics.help = {
+  title: 'Help',
+  content: [
+    ['Operating Systems Interactive Lab', 'bold lg'],
+    ['Type a command to explore OS concepts. Each topic includes the problem, mechanism, visualization, code, and a takeaway.', 'info'],
+    divider(),
+    ['FOUNDATION', 'section'],
+    ['  foundation     — What is an OS, why we need one, evolution, types, components', 'info'],
+    ['  architecture   — OS architecture, kernel space vs user space', 'info'],
+    ['  boot           — BIOS/UEFI → bootloader → kernel → init', 'info'],
+    divider(),
+    ['PROCESS MANAGEMENT', 'section'],
+    ['  process        — Process lifecycle, PCB, context switching', 'info'],
+    ['  schedule       — CPU scheduling: FCFS, SJF, Priority, RR, MLQ', 'info'],
+    ['  threads        — Threads vs processes, multithreading, synchronization', 'info'],
+    ['  sync           — Race conditions, deadlocks, synchronization primitives', 'info'],
+    divider(),
+    ['MEMORY', 'section'],
+    ['  memory         — Address spaces, paging, segmentation', 'info'],
+    ['  virtualmem     — Virtual memory, page replacement, thrashing', 'info'],
+    divider(),
+    ['STORAGE', 'section'],
+    ['  filesystem     — Inodes, journaling, NTFS vs EXT4 vs APFS', 'info'],
+    ['  device         — Device drivers, interrupts, DMA', 'info'],
+    divider(),
+    ['SECURITY & VIRTUALIZATION', 'section'],
+    ['  security       — OS security, authentication, access control', 'info'],
+    ['  virtualization — Hypervisors, containers vs VMs', 'info'],
+    divider(),
+    ['VISUALIZATIONS', 'section'],
+    ['  diagram        — Full OS architecture ASCII map (interactive)', 'info'],
+    ['  simulate       — Run scheduling simulations with your own jobs', 'info'],
+    divider(),
+    ['<span style="color:var(--cyan)">Pro tip:</span> Every topic has a code example and a "⚡" TL;DR at the end.', 'info'],
+    ['<span style="color:var(--cyan)">Try:</span> foundation → boot → process → schedule → memory → filesystem', 'info'],
+  ]
+};
+
+topics.foundation = {
+  title: 'What Is an Operating System?',
+  content: [
+    section('What Is an Operating System?'),
+    ['"The OS is the software that makes the hardware usable."', 'cyan'],
+    note('Imagine a massive, empty warehouse (the CPU), stacks of boxes (memory), shelves (disk), and loading docks (I/O). Walking in and trying to place a box requires knowing the exact shelf location, the forklift controls, the warehouse layout. The OS is your warehouse manager — it abstracts the chaos into clean, simple operations.'),
+    divider(),
+    section('Why Computers Need Operating Systems'),
+    ['Before OSes (1940s-50s), humans were the OS:', 'info'],
+    codeBlock([
+      '// The ENIAC way (1945):',
+      '1. Study machine diagram',
+      '2. Set dials and plug cables by hand',
+      '3. Feed punch cards',
+      '4. Pray the vacuum tubes don\'t burn out',
+      '5. Read panel lights for the answer',
+      '',
+      '// The OS way (today):',
+      'open("report.pdf");  // 1 system call vs 10,000 manual steps'
+    ]),
+    ['An OS provides:', 'subsection'],
+    ['  ■ Resource abstraction — CPU, memory, disk, network all virtualized', 'info'],
+    ['  ■ Process management — Run dozens of apps on 4-16 cores', 'info'],
+    ['  ■ Memory isolation — Chrome crash ≠ OS crash', 'info'],
+    ['  ■ Security — User A cannot read User B\'s files', 'info'],
+    ['  ■ Portability — Same OS, different hardware', 'info'],
+    divider(),
+    section('Evolution of Operating Systems'),
+    diagramBlock([
+      '  1940s ── NO OS  ── "Human as scheduler"',
+      '            ↓',
+      '  1950s ── Batch  ── One job at a time, punch cards',
+      '            ↓',
+      '  1960s ── Multiprogramming ── Several jobs in memory',
+      '            ↓',
+      '  1970s ── Unix    ── Portable, multi-user, C language',
+      '            ↓',
+      '  1980s ── GUI     ── Windows/Mac — the OS for everyone',
+      '            ↓',
+      '  1990s ── Linux   ── Open-source, internet-ready',
+      '            ↓',
+      '  2000s+ ── Mobile/Cloud ── Android, iOS, AWS, K8s'
+    ]),
+    divider(),
+    section('Types of Operating Systems'),
+    ['  ■ Batch OS     — No user interaction (IBM mainframes)', 'info'],
+    ['  ■ Time-sharing — Each user gets a slice (Unix, Linux)', 'info'],
+    ['  ■ Real-time    — Guaranteed deadlines (VxWorks, QNX)', 'info'],
+    ['  ■ Distributed  — Multiple machines, one system (Plan 9)', 'info'],
+    ['  ■ Embedded     — Single-purpose (FreeRTOS, Zephyr)', 'info'],
+    ['  ■ Mobile       — Touch-first, power-aware (Android, iOS)', 'info'],
+    divider(),
+    section('Components of an Operating System'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────┐',
+      '  │          USER APPLICATIONS           │',
+      '  │   (Chrome, Spotify, VS Code, ...)    │',
+      '  ├──────────────────────────────────────┤',
+      '  │          SYSTEM LIBRARIES            │',
+      '  │  (glibc, libc++, stdlib, systemd...) │',
+      '  ├──────────────────────────────────────┤',
+      '  │     SYSTEM CALL INTERFACE (API)      │',
+      '  ├──┬───┬───┬───┬───┬───┬───┬───┬───┬──┤',
+      '  │Pr│ Me│ Fi│ IO│ Ne│ De│ Se│ Ti│ Ip│Si│',
+      '  │oc│m.│le│   │t. │v. │c. │me│c. │g.│',
+      '  │ss│Mg│Sys│   │Mg│Dr│   │r. │   │Ha│',
+      '  │Mg│mt│   │   │mt│iv│   │   │   │nd│',
+      '  ├──┴───┴───┴───┴───┴───┴───┴───┴───┴──┤',
+      '  │           HARDWARE ABSTRACTION        │',
+      '  ├──────────────────────────────────────┤',
+      '  │     CPU  │  RAM  │  DISK  │  NIC     │',
+      '  └──────────────────────────────────────┘'
+    ]),
+    tldr('An OS is the resource manager and abstraction layer between hardware and applications. It turns a pile of silicon into a usable computer.'),
+  ]
+};
+
+topics.architecture = {
+  title: 'OS Architecture',
+  content: [
+    section('OS Architecture Overview'),
+    ['Two fundamental divisions:', 'subsection'],
+    ['  ■ User Space (Ring 3) — Where applications live', 'info'],
+    ['  ■ Kernel Space (Ring 0) — Where the OS core lives', 'info'],
+    divider(),
+    section('User Space vs Kernel Space'),
+    diagramBlock([
+      '  RING 3  ┌─────────────────────────────┐',
+      '  USER    │  App 1  │  App 2  │  App 3  │',
+      '  SPACE   │  (Chrome)│ (VS Code)│ (Spotify)│',
+      '          └─────────────────────────────┘',
+      '              │          │          │',
+      '              └──── syscall ─────────┘',
+      '                      │',
+      '  RING 0  ┌───────────┴───────────┐',
+      '  KERNEL  │  Syscall dispatcher     │',
+      '  SPACE   ├────────────────────────┤',
+      '          │  Process Scheduler      │',
+      '          │  Memory Manager         │',
+      '          │  File System            │',
+      '          │  Device Drivers         │',
+      '          │  Network Stack          │',
+      '          │  IPC                    │',
+      '          ├────────────────────────┤',
+      '          │  Hardware Abstraction   │',
+      '          └────────────────────────┘'
+    ]),
+    ['Why the separation? Three words: ISOLATION. STABILITY. SECURITY.', 'yellow'],
+    divider(),
+    codeBlock([
+      '// What happens when you type "cat file.txt"?',
+      '',
+      '1. Shell (user space) calls read()',
+      '2. CPU switches from Ring 3 → Ring 0 (syscall instruction)',
+      '3. Kernel looks up file inode → checks permissions',
+      '4. Disk driver reads block (DMA, no CPU needed)',
+      '5. Data copied to user buffer',
+      '6. CPU switches back Ring 0 → Ring 3',
+      '7. cat prints the text',
+      '',
+      '// All of this happens in microseconds.',
+      '// You see the file contents. Magic.'
+    ]),
+    section('Kernel Types'),
+    ['  ■ Monolithic (Linux) — All in kernel space. Fast but large.', 'info'],
+    ['  ■ Microkernel (Minix, QNX) — Minimal kernel. IPC for services.', 'info'],
+    ['  ■ Hybrid (Windows, macOS) — Compromise: kernel + user services.', 'info'],
+    diagramBlock([
+      '  MONOLITHIC       MICROKERNEL        HYBRID',
+      '  ┌──────────┐     ┌──────┐           ┌──────────┐',
+      '  │ FS│Net│Drv│     │ IPC  │           │ FS│Net│Drv│',
+      '  │ Sch│MM │   │     │ Sched│           │ Sch│MM │   │',
+      '  │ (KERNEL)  │     │ (MIN)│           │ (KERNEL)  │',
+      '  └──────────┘     └──────┘           └──────────┘',
+      '       │               │                    │',
+      '       │               │ FS  Net  Drv        │',
+      '       ▼               ▼ (user sp)           ▼',
+      '  Fast.Secure.    Stable.Secure.      Compromise.',
+      '  1 crash → OS    Crash = restart     Middle ground',
+      '  down.           that service.'
+    ]),
+    section('System Calls — The Gateway'),
+    codeBlock([
+      '// The POSIX system call API (partial list):',
+      '',
+      '  Process:   fork(), exec(), wait(), exit()',
+      '  Memory:    brk(), mmap(), munmap()',
+      '  Files:     open(), read(), write(), close()',
+      '  Network:   socket(), bind(), connect(), send()',
+      '  Meta:      ioctl(), fcntl(), stat()',
+      '',
+      '// Each syscall has a number:',
+      '// x86-64: read = 0, write = 1, open = 2, close = 3...'
+    ]),
+    tldr('Kernel space is the trusted core (Ring 0). User space is the untrusted playground (Ring 3). System calls are the only bridge between them — no app touches hardware directly.'),
+  ]
+};
+
+topics.boot = {
+  title: 'How a Computer Boots',
+  content: [
+    section('How a Computer Boots'),
+    ['"The boot process is a computer\'s birth story — from lifeless silicon to a running system."', 'cyan'],
+    divider(),
+    section('Step 1: CPU Reset (Power On)'),
+    codeBlock([
+      '// The very first instruction:',
+      'CPU jumps to 0xFFFFFFF0 (reset vector on x86-64)',
+      'This address maps to ROM (BIOS/UEFI firmware)',
+      'No RAM initialized yet. No disk. Just the CPU.',
+      '',
+      '// The CPU is in Real Mode — 16-bit, 1MB addressable.',
+      '// It can barely count to a million.'
+    ]),
+    divider(),
+    section('Step 2: BIOS / UEFI Firmware'),
+    ['BIOS (Legacy):', 'subsection'],
+    diagramBlock([
+      '  ┌─────────────────────────────────────┐',
+      '  │  BIOS (Basic Input/Output System)   │',
+      '  ├─────────────────────────────────────┤',
+      '  │  1. POST — Power-On Self Test       │',
+      '  │     ├─ CPU checksum verified        │',
+      '  │     ├─ RAM quick test               │',
+      '  │     ├─ Devices enumerated           │',
+      '  │     └─ Beep if something is wrong   │',
+      '  │                                     │',
+      '  │  2. Boot device selection           │',
+      '  │     (HDD > USB > PXE > CD/DVD)      │',
+      '  │                                     │',
+      '  │  3. Load MBR (sector 0, 512 bytes)  │',
+      '  │     └─ MBR contains bootloader code │',
+      '  │        + partition table            │',
+      '  └─────────────────────────────────────┘'
+    ]),
+    ['UEFI (Modern):', 'subsection'],
+    codeBlock([
+      '  UEFI advantages over BIOS:',
+      '  ■ GPT partitioning (vs MBR\'s 2TB limit)',
+      '  ■ Secure Boot — cryptographic chain of trust',
+      '  ■ Boot in 32-bit or 64-bit mode (not 16-bit real)',
+      '  ■ Can read FAT32 directly — no tiny bootloader needed',
+      '  ■ Boot manager built in (boot entries, not sector reads)'
+    ]),
+    divider(),
+    section('Step 3: The Bootloader (GRUB2)'),
+    diagramBlock([
+      '  MBR ──→ stage 1 (446 bytes) ──→ stage 1.5 ──→ stage 2',
+      '                │                                    │',
+      '       Enough code to find          Full GRUB: menu, modules,',
+      '       stage 1.5 on disk            filesystem drivers, config',
+      '',
+      '  GRUB2 workflow:',
+      '  1. Reads /boot/grub/grub.cfg',
+      '  2. Presents menu (OS selection)',
+      '  3. Loads vmlinuz (kernel) into memory',
+      '  4. Loads initrd (initial ramdisk)',
+      '  5. Jumps to kernel entry point'
+    ]),
+    divider(),
+    section('Step 4: Kernel Initialization'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────┐',
+      '  │  LINUX BOOT SEQUENCE                      │',
+      '  ├──────────────────────────────────────────┤',
+      '  │  1. Decompress vmlinuz (gzip → ELF)      │',
+      '  │  2. Setup architecture                    │',
+      '  │     ├─ GDT (Global Descriptor Table)      │',
+      '  │     ├─ IDT (Interrupt Descriptor Table)   │',
+      '  │     ├─ Page tables (enable paging)        │',
+      '  │     └─ Switch to protected/long mode      │',
+      '  │                                           │',
+      '  │  3. start_kernel() — the C entry point     │',
+      '  │     ├─ Trap/IRQ handlers installed        │',
+      '  │     ├─ Scheduler initialized (idle task)  │',
+      '  │     ├─ Memory manager (buddy allocator)   │',
+      '  │     ├─ VFS root filesystem mounted        │',
+      '  │     └─ init process spawned (PID 1)       │',
+      '  └──────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Step 5: Init System (systemd)'),
+    codeBlock([
+      '  // PID 1 — the ancestor of all processes',
+      '',
+      '  systemd workflow:',
+      '  ■ Mounts filesystems (/, /proc, /sys, /dev)',
+      '  ■ Starts udev (device manager)',
+      '  ■ Loads kernel modules (drivers)',
+      '  ■ Starts networking (DHCP, DNS)',
+      '  ■ Starts display manager (login screen)',
+      '  ■ YOU — now logged in, shell ready',
+      '',
+      '  $ systemd-analyze blame  # see what took time',
+      '  12.3s network-online.target',
+      '   5.1s firewalld.service',
+      '   2.4s systemd-journald',
+      '   1.8s lvm2-monitor',
+      '   ...'
+    ]),
+    divider(),
+    section('Boot Timeline'),
+    diagramBlock([
+      '  POWER ON                                             LOGIN',
+      '     │                                                    │',
+      '     ▼                                                    ▼',
+      '  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐',
+      '  │BIOS/   │  │GRUB │  │ KERNEL INIT      │  │ SYSTEMD   │',
+      '  │UEFI    │  │     │  │ (setup, MM, sched)│  │ (services) │',
+      '  └──┬──┬──┘  └──┬──┘  └──┬──┬──┬──┬──┬──┘  └──┬──┬──┬──┘',
+      '     │POST      │menu     │SMP | MMU | VFS     │ target',
+      '     │dev enum  │kernel   │drivers | initrd    │login',
+      '     └─ ~3s     └─ ~1s    └─ ~3-5s             └─ ~5-10s',
+      '',
+      '  Total: ~15-30 seconds from cold boot to login prompt.'
+    ]),
+    tldr('Boot is a trust chain: Firmware → Bootloader → Kernel → Init. Each stage validates and loads the next, turning metal into a living system.'),
+  ]
+};
+
+topics.process = {
+  title: 'Process Management',
+  content: [
+    section('What Is a Process?'),
+    ['A process is a program in execution — NOT just the code. It includes:', 'info'],
+    ['  ■ Code (text section) — The instructions', 'info'],
+    ['  ■ Data — Global/static variables', 'info'],
+    ['  ■ Heap — Dynamically allocated memory (malloc)', 'info'],
+    ['  ■ Stack — Function call frames, local variables', 'info'],
+    ['  ■ Registers — PC, SP, frame pointer, general purpose', 'info'],
+    ['  ■ OS resources — Open files, sockets, locks, signals', 'info'],
+    divider(),
+    codeBlock([
+      '  $ ps aux  # see all running processes',
+      '  USER       PID  %CPU %MEM  VSZ   RSS  COMMAND',
+      '  veera     1234  2.1  1.5  4.2G  120M  Chrome',
+      '  veera     5678  0.0  0.1  2.1G   45M  Code',
+      '  root         1  0.0  0.0  168M   12M  systemd',
+      '',
+      '  // PID = Process ID, unique to each process',
+      '  // VSZ = Virtual memory size, RSS = Physical RAM used'
+    ]),
+    divider(),
+    section('Process Lifecycle'),
+    diagramBlock([
+      '        ┌─────────────┐',
+      '        │    NEW      │  Process created (fork)',
+      '        └──────┬──────┘',
+      '               │',
+      '               ▼',
+      '        ┌─────────────┐',
+      '        │   READY     │  Loaded in memory, waiting for CPU',
+      '        └──────┬──────┘',
+      '               │',
+      '          scheduler ▼  (dispatched)',
+      '        ┌─────────────┐',
+      '   ┌───→│  RUNNING    │  Instructions executing on CPU',
+      '   │    └──┬──┬──┬───┘',
+      '   │       │  │  │',
+      '   │  I/O  │  │  │  preempted (time quantum expired)',
+      '   │  or   │  │  └────────→ READY',
+      '   │  event│  │',
+      '   │       │  ▼  exit()',
+      '   │       │  ┌─────────────┐',
+      '   │       └──│ TERMINATED  │  Done, resources released',
+      '   │          └─────────────┘',
+      '   ▼',
+      '  ┌─────────────┐',
+      '  │   WAITING   │  Waiting for I/O or event',
+      '  └──────┬──────┘',
+      '         │  I/O complete or signal received',
+      '         └────────→ READY'
+    ]),
+    divider(),
+    section('Process Control Block (PCB)'),
+    ['The PCB is the OS\'s "driver\'s license" for every process.', 'info'],
+    codeBlock([
+      '  struct task_struct {  // Linux\'s PCB (~2KB per process)',
+      '    pid_t pid;               // Process ID',
+      '    long state;              // Running, Sleeping, Stopped, Zombie',
+      '    struct mm_struct *mm;    // Memory map',
+      '    struct files_struct *files; // Open file descriptors',
+      '    struct thread_struct thread; // CPU registers (saved on ctx sw)',
+      '    unsigned int policy;     // Scheduling policy',
+      '    int prio, static_prio;   // Priority values',
+      '    struct list_head children; // Child processes',
+      '    char comm[TASK_COMM_LEN]; // Process name (e.g., "chrome")',
+      '    ...  // 100+ more fields',
+      '  };'
+    ]),
+    divider(),
+    section('Context Switching — The Hidden Cost'),
+    ['When the CPU switches from Process A → Process B:', 'info'],
+    codeBlock([
+      '  1. Save A\'s registers into A\'s PCB',
+      '  2. Save A\'s stack pointer into A\'s PCB',
+      '  3. Flush TLB (translation lookaside buffer)',
+      '  4. Load B\'s registers from B\'s PCB',
+      '  5. Load B\'s stack pointer',
+      '  6. Resume execution at B\'s last PC',
+      '',
+      '  // Cost: 1-100 microseconds depending on hardware',
+      '  // 1000 ctx switches/sec ≈ 1-10% CPU overhead',
+      '  // This is why spinlocks sometimes beat mutexes.'
+    ]),
+    ['The OS hides this so well that you think 50 apps run "simultaneously." In reality, one core runs one thread at a time — just switching very fast.', 'dim'],
+    tldr('A process is a program in execution with its own address space (code, heap, stack, data) and OS resources. The PCB tracks everything. Context switching is the hidden tax of multitasking.'),
+  ]
+};
+
+topics.schedule = {
+  title: 'CPU Scheduling',
+  content: [
+    section('CPU Scheduling — Who Gets the CPU Next?'),
+    ['The scheduler answers one question: which ready process runs next?', 'info'],
+    divider(),
+    section('Key Terms'),
+    ['  ■ Arrival Time — When process enters ready queue', 'info'],
+    ['  ■ Burst Time — How long the process needs the CPU', 'info'],
+    ['  ■ Completion Time — When process finishes', 'info'],
+    ['  ■ Turnaround Time = Completion − Arrival', 'info'],
+    ['  ■ Waiting Time = Turnaround − Burst', 'info'],
+    ['  ■ Response Time — Time from arrival to first CPU assignment', 'info'],
+    divider(),
+    section('FCFS — First Come, First Served'),
+    ['Non-preemptive. The first to arrive runs to completion.', 'info'],
+    diagramBlock([
+      '  Processes: P1(24ms), P2(3ms), P3(3ms)',
+      '',
+      '  P1 ■■■■■■■■■■■■■■■■■■■■■■■■  P2■■■  P3■■■',
+      '  └─────────────────────────────────────────→',
+      '  0                         24   27   30',
+      '',
+      '  Average waiting time: (0 + 24 + 27) / 3 = 17ms',
+      '  ■ Convoy effect: short jobs wait behind long ones.'
+    ]),
+    section('SJF — Shortest Job First'),
+    ['Non-preemptive. Run the shortest job next.', 'info'],
+    diagramBlock([
+      '  Processes: P1(24ms), P2(3ms), P3(3ms)',
+      '',
+      '  P2■■■  P3■■■  P1■■■■■■■■■■■■■■■■■■■■■■■■',
+      '  └─────────────────────────────────────────→',
+      '  0   3    6                         30',
+      '',
+      '  Average waiting time: (6 + 0 + 3) / 3 = 3ms',
+      '  ■ Optimal for minimizing average waiting time.',
+      '  ■ Problem: Impossible to know burst time in advance.',
+      '  ■ Starvation: long jobs may never run.'
+    ]),
+    section('Priority Scheduling'),
+    ['Each process has a priority. Higher priority runs first.', 'info'],
+    codeBlock([
+      '  // Linux nice values: -20 (highest) to +19 (lowest)',
+      '',
+      '  $ nice -n -10 ./important-task  # run with high priority',
+      '  $ renice +5 1234                # lower priority of PID 1234',
+      '',
+      '  // Problem: Starvation. Low-priority processes never run.',
+      '  // Solution: Aging — gradually increase priority of waiting processes.'
+    ]),
+    section('Round Robin (RR) — The Fair Scheduler'),
+    ['Preemptive. Each process runs for a "time quantum" then moves to the back.', 'info'],
+    diagramBlock([
+      '  Quantum = 4ms. Processes: P1(8ms), P2(4ms), P3(8ms)',
+      '',
+      '  P1■■■■  P2■■■■  P3■■■■  P1■■■■  P3■■■■',
+      '  └─────────────────────────────────────────→',
+      '  0   4     8     12     16     20     24',
+      '',
+      '  Average waiting time: (8 + 4 + 12) / 3 = 8ms',
+      '',
+      '  ■ Quantum too large → degrades to FCFS',
+      '  ■ Quantum too small → too many context switches (overhead)',
+      '  ■ Sweet spot: 10-100ms (depending on workload)',
+      '  ■ Linux CFS (Completely Fair Scheduler): target latency ~20ms'
+    ]),
+    section('Multilevel Queue Scheduling'),
+    diagramBlock([
+      '  ┌─────────────────────────────────────────────┐',
+      '  │  Queue 0 (Foreground, RR, q=8ms)            │',
+      '  │  ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐    │',
+      '  │  │P1│P2│P3│P4│P1│P5│P3│P6│P1│P3│P7│...│    │',
+      '  │  └──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘    │',
+      '  ├─────────────────────────────────────────────┤',
+      '  │  Queue 1 (Background, FCFS)                 │',
+      '  │  ┌──────────┬──────────┬──────────┐        │',
+      '  │  │   P8     │   P9     │   P10    │        │',
+      '  │  └──────────┴──────────┴──────────┘        │',
+      '  ├─────────────────────────────────────────────┤',
+      '  │  Queue 2 (Batch, FCFS)                      │',
+      '  │  ┌──────────┬──────────┐                   │',
+      '  │  │   P11    │   P12    │                   │',
+      '  │  └──────────┴──────────┘                   │',
+      '  └─────────────────────────────────────────────┘',
+      '',
+      '  ■ Priority between queues: Q0 > Q1 > Q2',
+      '  ■ Used by Linux: SCHED_FIFO, SCHED_RR, SCHED_OTHER, SCHED_BATCH'
+    ]),
+    divider(),
+    ['Type "simulate" to run your own scheduling simulations.', 'cyan'],
+    tldr('Scheduling is about trade-offs: FCFS is fair but slow, SJF is optimal but impractical, RR is interactive but has overhead. Linux\'s CFS gives each process a "fair share" of CPU time.'),
+  ]
+};
+
+topics.threads = {
+  title: 'Threads',
+  content: [
+    section('What Is a Thread?'),
+    ['A thread is the smallest unit of execution within a process.', 'info'],
+    ['Think of a process as a house, and threads as the people living in it:', 'info'],
+    ['  ■ The house (process) has its own address, rooms, utilities (resources)', 'info'],
+    ['  ■ Each person (thread) can use any room, share the kitchen (heap)', 'info'],
+    ['  ■ But each person has their own bedroom (stack) and phone (registers)', 'info'],
+    divider(),
+    section('Processes vs Threads'),
+    diagramBlock([
+      '  ┌───────────────┐     ┌───────────────┐',
+      '  │   PROCESS A   │     │   PROCESS B   │',
+      '  │  ┌─────────┐  │     │  ┌─────────┐  │',
+      '  │  │ Thread 1│  │     │  │ Thread 1│  │',
+      '  │  │ Stack   │  │     │  │ Stack   │  │',
+      '  │  │ Regs    │  │     │  │ Regs    │  │',
+      '  │  ├─────────┤  │     │  ├─────────┤  │',
+      '  │  │ HEAP    │  │     │  │ HEAP    │  │',
+      '  │  │ DATA    │  │     │  │ DATA    │  │',
+      '  │  │ CODE    │  │     │  │ CODE    │  │',
+      '  │  │ FILES   │  │     │  │ FILES   │  │',
+      '  │  └─────────┘  │     │  └─────────┘  │',
+      '  └───────────────┘     └───────────────┘',
+      '        │                      │',
+      '   ┌────┴────┐           ┌────┴────┐',
+      '   │ PID:1234│           │ PID:5678│',
+      '   │ *Own*   │           │ *Own*   │',
+      '   │ address │           │ address │',
+      '   │ space   │           │ space   │',
+      '   └─────────┘           └─────────┘',
+      '',
+      '  ┌───────────────────────────────┐',
+      '  │        PROCESS WITH           │',
+      '  │      MULTIPLE THREADS         │',
+      '  │  ┌──────┐┌──────┐┌──────┐   │',
+      '  │  │ T1   ││ T2   ││ T3   │   │',
+      '  │  │Stack ││Stack ││Stack │   │',
+      '  │  │Regs  ││Regs  ││Regs  │   │',
+      '  │  ├──────┴┴──────┴┴──────┤   │',
+      '  │  │   SHARED: HEAP, CODE,  │   │',
+      '  │  │   DATA, FILES          │   │',
+      '  │  │   PID: 1234            │   │',
+      '  │  │   *ONE* address space  │   │',
+      '  │  └────────────────────────┘   │',
+      '  └───────────────────────────────┘'
+    ]),
+    ['■ Threads share: heap, code, data, file descriptors', 'info'],
+    ['■ Threads have own: stack, registers, program counter', 'info'],
+    ['■ Creating a thread ≈ 10-100× cheaper than creating a process', 'info'],
+    divider(),
+    section('Multithreading Example'),
+    codeBlock([
+      '  #include <stdio.h>',
+      '  #include <pthread.h>',
+      '',
+      '  void* worker(void* arg) {',
+      '    int id = *(int*)arg;',
+      '    printf("Thread %d: running on CPU %d\\n",',
+      '           id, sched_getcpu());',
+      '    return NULL;',
+      '  }',
+      '',
+      '  int main() {',
+      '    pthread_t t[4];',
+      '    int ids[4] = {0, 1, 2, 3};',
+      '',
+      '    for (int i = 0; i < 4; i++)',
+      '      pthread_create(&t[i], NULL, worker, &ids[i]);',
+      '',
+      '    for (int i = 0; i < 4; i++)',
+      '      pthread_join(t[i], NULL);  // wait for threads',
+      '',
+      '    return 0;',
+      '  }',
+      '',
+      '  // Output (possible):',
+      '  // Thread 0: running on CPU 2',
+      '  // Thread 2: running on CPU 0',
+      '  // Thread 1: running on CPU 3',
+      '  // Thread 3: running on CPU 1',
+      '  // (Order and CPU assignments vary each run!)'
+    ]),
+    divider(),
+    section('Thread Synchronization'),
+    ['Shared data + concurrent access = RACE CONDITION.', 'yellow'],
+    codeBlock([
+      '  // Race condition example:',
+      '  int counter = 0;  // shared',
+      '',
+      '  // Thread 1:                     // Thread 2:',
+      '  counter++;  // Read(0)→Inc→Write │ counter++;  // Read(0)→Inc→Write',
+      '                                   │',
+      '  // Expected: counter = 2',
+      '  // Actual:   counter = 1 (lost update!)',
+      '',
+      '  // Solution: MUTEX (Mutual Exclusion)',
+      '  pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;',
+      '',
+      '  // Thread 1:                     // Thread 2:',
+      '  lock();                          lock();',
+      '  counter++;  // atomic now        counter++;  // atomic now',
+      '  unlock();                        unlock();',
+      '',
+      '  // Now counter always = 2 ✓'
+    ]),
+    divider(),
+    section('Deadlocks — The Four Horsemen'),
+    ['A deadlock requires all four conditions simultaneously:', 'info'],
+    ['  1. Mutual Exclusion — Resource can only be held by one thread', 'info'],
+    ['  2. Hold and Wait — Thread holds resources while waiting for others', 'info'],
+    ['  3. No Preemption — Cannot forcibly take a resource', 'info'],
+    ['  4. Circular Wait — Thread A waits for B, B waits for A', 'info'],
+    codeBlock([
+      '  // Classic deadlock: The Dining Philosophers',
+      '',
+      '  // 5 philosophers, 5 forks, 5 plates of spaghetti',
+      '  // Each needs TWO forks to eat',
+      '  // Each picks up LEFT fork first, then RIGHT',
+      '  // If ALL pick up LEFT simultaneously → deadlock!',
+      '',
+      '  // Prevention: pick up lower-numbered fork first',
+      '  // (breaks circular wait → no deadlock)'
+    ]),
+    tldr('Threads are lightweight processes that share memory — great for performance, dangerous for correctness. Use mutexes for shared data. Avoid deadlocks by acquiring locks in a consistent order.'),
+  ]
+};
+
+topics.sync = {
+  title: 'Synchronization',
+  content: [
+    section('Thread Synchronization — Taming Concurrency'),
+    ['When multiple threads access shared data without coordination, chaos ensues.', 'info'],
+    divider(),
+    section('Race Conditions'),
+    codeBlock([
+      '  // A classic race:',
+      '  // Two threads each increment a shared counter 1,000,000 times',
+      '',
+      '  Expected: counter = 2,000,000',
+      '  Got:      counter = 1,234,567  (varies each run!)',
+      '',
+      '  Why? Because counter++ is NOT atomic:',
+      '    1. Read counter from memory      ← thread A does this',
+      '    2. Increment in register              ← thread B does this',
+      '    3. Write back to memory                ← now A\'s write is lost!'
+    ]),
+    divider(),
+    section('Mutex (Mutual Exclusion)'),
+    ['A lock that ensures only ONE thread enters the critical section.', 'info'],
+    diagramBlock([
+      '  WITHOUT MUTEX:',
+      '  T1 ──[read]──────[write]──→ counter = 5? (wrong)',
+      '  T2 ──────[read]─[write]──────→ counter = 5? (same!)',
+      '',
+      '  WITH MUTEX:',
+      '  T1 ──[LOCK]──[read][write]──[UNLOCK]──→ counter = 6',
+      '  T2          ──[LOCK]──[read][write]──[UNLOCK]→ counter = 7',
+      '                  (waits)'
+    ]),
+    divider(),
+    section('Condition Variables'),
+    ['Used when a thread needs to WAIT for a condition to become true.', 'info'],
+    codeBlock([
+      '  // Producer-Consumer pattern:',
+      '  pthread_mutex_t lock;',
+      '  pthread_cond_t cond;',
+      '  int buffer_ready = 0;',
+      '',
+      '  // Producer:',
+      '  pthread_mutex_lock(&lock);',
+      '  produce_data();',
+      '  buffer_ready = 1;',
+      '  pthread_cond_signal(&cond);  // wake up consumer',
+      '  pthread_mutex_unlock(&lock);',
+      '',
+      '  // Consumer:',
+      '  pthread_mutex_lock(&lock);',
+      '  while (!buffer_ready)',
+      '    pthread_cond_wait(&cond, &lock);  // sleep, release lock',
+      '  consume_data();',
+      '  pthread_mutex_unlock(&lock);'
+    ]),
+    divider(),
+    section('Semaphores'),
+    ['A counter that controls access to a pool of resources.', 'info'],
+    codeBlock([
+      '  #include <semaphore.h>',
+      '',
+      '  sem_t pool;',
+      '  sem_init(&pool, 0, 3);  // 3 identical resources (e.g., DB connections)',
+      '',
+      '  // Thread:',
+      '  sem_wait(&pool);   // acquire → count-- (block if 0)',
+      '  use_resource();',
+      '  sem_post(&pool);   // release → count++',
+      '',
+      '  // Binary semaphore (0 or 1) ≈ mutex',
+      '  // Counting semaphore (0 to N) ≈ resource pool'
+    ]),
+    divider(),
+    section('Deadlocks — The Four Conditions'),
+    ['A set of threads is deadlocked if each is waiting for an event that only another can cause.', 'info'],
+    codeBlock([
+      '  // Detecting deadlocks: "lockdep"',
+      '  // Linux kernel\'s lock dependency validator:',
+      '',
+      '  $ echo t > /proc/sysrq-trigger  # dump all task states',
+      '  $ dmesg | grep "D"              # find D-state (uninterruptible sleep)',
+      '',
+      '  // When you see processes stuck in "D" state',
+      '  // and they hold locks each other needs → deadlock.'
+    ]),
+    tldr('Synchronization is the art of preventing chaos in concurrent code. Mutexes for exclusive access, condition variables for waiting, semaphores for resource pools. Always acquire locks in a consistent order to avoid deadlocks.'),
+  ]
+};
+
+topics.memory = {
+  title: 'Memory Management',
+  content: [
+    section('Introduction to Memory Management'),
+    ['"Every program thinks it owns the entire machine — and the OS lets it believe that."', 'cyan'],
+    divider(),
+    section('Address Spaces'),
+    ['Each process gets its own virtual address space (e.g., 2^48 bytes on x86-64):', 'info'],
+    diagramBlock([
+      '  ┌───────────────────────┐  0x0000000000000000',
+      '  │  Code (text)          │',
+      '  │  (read-only, fixed)   │',
+      '  ├───────────────────────┤',
+      '  │  Data (global vars)   │',
+      '  ├───────────────────────┤',
+      '  │  Heap                  │',
+      '  │  (grows upward via    │',
+      '  │   brk/mmap)            │',
+      '  │         ↓              │',
+      '  │  ─────────────        │',
+      '  │         ↑              │',
+      '  │  Stack                 │',
+      '  │  (grows downward)     │',
+      '  ├───────────────────────┤',
+      '  │  Kernel mappings      │',
+      '  │  (inaccessible from   │',
+      '  │   user space)          │',
+      '  └───────────────────────┘  0xFFFFFFFFFFFFFFFF',
+      '',
+      '  ■ Virtual addresses ≠ physical addresses',
+      '  ■ The MMU translates on-the-fly'
+    ]),
+    divider(),
+    section('Paging — The Foundation'),
+    ['Physical memory is divided into fixed-size frames (4KB on most systems). Virtual memory into pages.', 'info'],
+    diagramBlock([
+      '  VIRTUAL ADDRESS (32-bit example):',
+      '  ┌──────────┬────────────┐',
+      '  │  Page #  │  Offset    │',
+      '  │  (20 bits)│  (12 bits) │',
+      '  └──────────┴────────────┘',
+      '       │',
+      '       ▼  Page Table (per process)',
+      '  ┌──────────┬──────────┐',
+      '  │ Virt Page│ Phys Frame│',
+      '  ├──────────┼──────────┤',
+      '  │ VP 0     │ PF 3     │',
+      '  │ VP 1     │ PF 7     │',
+      '  │ VP 2     │ INVALID  │ ← page fault if accessed',
+      '  │ VP 3     │ PF 1     │',
+      '  │ ...      │ ...      │',
+      '  └──────────┴──────────┘',
+      '       │',
+      '       ▼',
+      '  PHYSICAL MEMORY:',
+      '  ┌────┬────┬────┬────┬────┬────┬────┬────┐',
+      '  │ PF0│ PF1│ PF2│ PF3│ PF4│ PF5│ PF6│ PF7│',
+      '  │ ...│ VP3│ ...│ VP0│ ...│ ...│ ...│ VP1│',
+      '  └────┴────┴────┴────┴────┴────┴────┴────┘'
+    ]),
+    divider(),
+    section('Segmentation'),
+    ['An older approach: divide memory into logical segments (code, data, stack).', 'info'],
+    codeBlock([
+      '  // Segmentation on x86: CS (Code), DS (Data), SS (Stack), ES, FS, GS',
+      '',
+      '  // Each segment has: base + limit + permissions',
+      '  // Logical address = segment:offset',
+      '  // Physical address = segment_base + offset',
+      '',
+      '  // Problem: External fragmentation',
+      '  //   [CODE][FREE][DATA][FREE][STACK]',
+      '  //   ↳ gaps between segments can\'t be used easily',
+      '',
+      '  // Modern x86-64 uses paging. Segmentation is mostly vestigial.'
+    ]),
+    ['Paging vs Segmentation:', 'subsection'],
+    ['  ■ Paging: fixed-size, no fragmentation, simpler VM', 'info'],
+    ['  ■ Segmentation: variable-size, logical units, fragmentation', 'info'],
+    ['  ■ Modern OS: Paging (with segments used minimally)', 'info'],
+    divider(),
+    section('Translation Lookaside Buffer (TLB)'),
+    ['Every memory access requires a page table lookup — this is expensive.', 'info'],
+    codeBlock([
+      '  // Without TLB: every load/store = 2 memory accesses',
+      '  //   1. Access page table (physical memory)',
+      '  //   2. Access actual data (physical memory)',
+      '  //  → Memory access is ~2× slower!',
+      '',
+      '  // With TLB (hardware cache for page translations):',
+      '  //   1. Check TLB (1 cycle)',
+      '  //      HIT → access data directly',
+      '  //      MISS → walk page table, cache in TLB, access data',
+      '',
+      '  // TLB coverage: ~32-512 entries × 4KB = 128KB-2MB covered',
+      '  // Hit rate: >99% for most workloads'
+    ]),
+    tldr('Paging makes every process believe it has infinite, contiguous memory. The MMU + TLB translates virtual → physical addresses on every memory access, with minimal overhead.'),
+  ]
+};
+
+topics.virtualmem = {
+  title: 'Virtual Memory',
+  content: [
+    section('Virtual Memory — The Great Illusion'),
+    ['"Virtual memory is the OS\'s magic trick: making a 4GB machine run 100GB of workloads."', 'cyan'],
+    divider(),
+    section('How Virtual Memory Works'),
+    ['When RAM fills up, pages are moved to disk (swap):', 'info'],
+    diagramBlock([
+      '  PHYSICAL RAM (4GB):         SWAP ON DISK (8GB):',
+      '  ┌────────────────┐          ┌────────────────┐',
+      '  │ Active pages   │   evict  │ Inactive pages │',
+      '  │ (frequently    │ ←──────→ │ (rarely used)  │',
+      '  │  accessed)     │   fault  │                │',
+      '  └────────────────┘          └────────────────┘',
+      '',
+      '  access P3 → page fault → load from disk → retry',
+      '  (takes ~10ms instead of ~100ns — 100,000× slower!)'
+    ]),
+    divider(),
+    section('Page Replacement Algorithms'),
+    ['When you need to evict a page, WHICH one?', 'info'],
+    codeBlock([
+      '  FIFO — First In, First Out:',
+      '    Evict the oldest page in memory.',
+      '    Problem: Belady\'s Anomaly — more frames can mean MORE faults!',
+      '',
+      '  LRU — Least Recently Used:',
+      '    Evict the page not accessed for the longest time.',
+      '    Problem: Requires hardware support (or approximation).',
+      '',
+      '  Clock (Second Chance):',
+      '    Each page has a "use" bit. Sweep around, give second chance.',
+      '    Used by Linux (approximates LRU cheaply).',
+      '',
+      '  LFU — Least Frequently Used:',
+      '    Evict the page with fewest accesses.',
+      '    Problem: Old pages accumulate high counts and never get evicted.'
+    ]),
+    section('Thrashing — The OS Nightmare'),
+    ['When working set exceeds physical memory, every access is a page fault:', 'info'],
+    diagramBlock([
+      '  ACCESS PATTERN UNDER THRASHING:',
+      '',
+      '  Time  │  Action          │  What happens',
+      '  ──────┼──────────────────┼────────────────────',
+      '   t1   │  Access page A   │  Page fault → load A from disk',
+      '   t2   │  Access page B   │  Page fault → load B from disk (evicts A)',
+      '   t3   │  Access page A   │  Page fault → load A again (evicts B)',
+      '   t4   │  Access page B   │  Page fault → load B again (evicts A)',
+      '   ...  │  ...             │  ...CPU at 100%...disk at 100%...0 work done',
+      '',
+      '  CPU utilization drops to near-zero.',
+      '  Disk is thrashing. System is unresponsive.',
+      '  Only cure: kill applications or add more RAM.'
+    ]),
+    divider(),
+    section('Memory Protection'),
+    ['Pages have permission bits enforced by hardware:', 'info'],
+    codeBlock([
+      '  // x86-64 page table entry permissions:',
+      '',
+      '  ■ Present — Page is in physical memory',
+      '  ■ Read/Write — Writable or read-only',
+      '  ■ User/Supervisor — Accessible from user space or kernel only',
+      '  ■ NX (No Execute) — Prevent code execution from data pages',
+      '  ■ Accessed — Set by hardware when page is read/written',
+      '  ■ Dirty — Set by hardware when page is written',
+      '',
+      '  // These bits prevent:',
+      '  // • Buffer overflow exploits (NX bit)',
+      '  // • Reading kernel memory from user space',
+      '  // • Writing to code sections'
+    ]),
+    tldr('Virtual memory extends RAM with disk, trading speed for capacity. Page replacement algorithms decide what stays. Thrashing is the worst case — your system spends all its time deciding what to keep, leaving no time for actual work.'),
+  ]
+};
+
+topics.filesystem = {
+  title: 'File Systems',
+  content: [
+    section('What Is a File System?'),
+    ['A file system is how the OS organizes, stores, retrieves, and protects data on disk.', 'info'],
+    divider(),
+    section('File Organization'),
+    diagramBlock([
+      '  LOGICAL VIEW:',
+      '  /home/veera/',
+      '  ├── projects/',
+      '  │   ├── os-lab/',
+      '  │   └── portfolio/',
+      '  ├── Documents/',
+      '  │   └── notes.txt',
+      '  └── .bashrc',
+      '',
+      '  PHYSICAL VIEW (on disk):',
+      '  ┌────┬────┬────┬────┬────┬────┬────┬────┐',
+      '  │MBR │SB  │BMAP│IMAP│INODE│DATA│DATA│...│',
+      '  └────┴────┴────┴────┴────┴────┴────┴────┘',
+      '  SB=Superblock, BMAP=Block bitmap,',
+      '  IMAP=Inode bitmap, INODE=inode table',
+      '  DATA=data blocks'
+    ]),
+    divider(),
+    section('Directory Structures'),
+    ['  ■ Single-level — One flat list (CP/M, early MS-DOS)', 'info'],
+    ['  ■ Two-level — Per-user directories', 'info'],
+    ['  ■ Hierarchical — Tree structure (Unix, Windows, macOS)', 'info'],
+    ['  ■ DAG — Directed Acyclic Graph (hard links, symlinks)', 'info'],
+    divider(),
+    section('Inodes — The File Metadata'),
+    ['Everything in Unix is a file. Every file has an inode.', 'info'],
+    codeBlock([
+      '  $ ls -li /etc/hosts',
+      '  128345 -rw-r--r-- 1 root root 278 Mar 15 2025 /etc/hosts',
+      '  │      │              │    │   │         │',
+      '  │      │              │    │   │         └── filename',
+      '  │      │              │    │   └── file size (bytes)',
+      '  │      │              │    └── modification time',
+      '  │      │              └── link count',
+      '  │      └── permissions (rwx rwx rwx)',
+      '  └── inode number',
+      '',
+      '  struct ext4_inode {',
+      '    __le16  i_mode;       // File type + permissions',
+      '    __le16  i_uid;        // Owner',
+      '    __le32  i_size;       // File size in bytes',
+      '    __le32  i_atime;      // Access time',
+      '    __le32  i_ctime;      // Create time',
+      '    __le32  i_mtime;      // Modify time',
+      '    __le32  i_blocks;     // Blocks used on disk',
+      '    __le32  i_block[15];  // Direct/Indirect block pointers',
+      '    // 12 direct + 1 single indirect + 1 double + 1 triple',
+      '    // → max file size: ~4TB (ext4, 4KB blocks)',
+      '  };'
+    ]),
+    divider(),
+    section('Journaling File Systems'),
+    ['Before journaling: a crash during a write = filesystem corruption = fsck on reboot.', 'info'],
+    ['Journaling adds a log: write → journal → checkpoint → clear.', 'info'],
+    diagramBlock([
+      '  WITHOUT JOURNALING:',
+      '  Write file → [inode update] [data block] [free block update]',
+      '  CRASH → Partial writes → inconsistent → fsck (minutes to hours)',
+      '',
+      '  WITH JOURNALING:',
+      '  1. Write "I\'m about to write file X" to journal (atomic)',
+      '  2. Write actual data + metadata',
+      '  3. Mark transaction complete in journal',
+      '  4. Replay journal on boot if crash happened',
+      '  CRASH → replay journal → consistent in seconds',
+      '',
+      '  ■ ext3/4: ordered journaling (metadata + data journaled)',
+      '  ■ Journal modes: writeback (fast, risky), ordered (safe), data (slow, safest)'
+    ]),
+    divider(),
+    section('NTFS vs EXT4 vs APFS'),
+    codeBlock([
+      '  ┌───────────┬───────────┬───────────┬──────────┐',
+      '  │ Feature   │  NTFS     │  EXT4     │  APFS    │',
+      '  ├───────────┼───────────┼───────────┼──────────┤',
+      '  │ OS        │ Windows   │ Linux     │ macOS    │',
+      '  │ Journaling│ Yes       │ Yes       │ Copy-on- │',
+      '  │           │           │           │  write   │',
+      '  │ Max size  │ 256TB     │ 1EB       │ 8EB      │',
+      '  │ Snapshots │ No        │ No        │ Yes      │',
+      '  │ Encryption│ EFS       │ eCryptfs  │ Native   │',
+      '  │ Defrag    │ Auto      │ Not needed│ Not needed│',
+      '  │ Case-     │ Insensitive│ Sensitive│ Config.  │',
+      '  │ sensitive │           │           │          │',
+      '  │ Max file  │ 16TB      │ 16TB      │ 8EB      │',
+      '  │ (4KB blk) │           │           │          │',
+      '  └───────────┴───────────┴───────────┴──────────┘'
+    ]),
+    tldr('A file system is the OS\'s data librarian. Inodes hold metadata, directories map names to inodes, journaling prevents corruption, and each OS has its own approach (NTFS, EXT4, APFS).'),
+  ]
+};
+
+topics.device = {
+  title: 'Device Management',
+  content: [
+    section('Device Management'),
+    ['How does the OS talk to hardware without every app knowing the hardware details?', 'info'],
+    divider(),
+    section('Device Drivers'),
+    ['A driver is a kernel module that knows how to speak a specific device\'s language.', 'info'],
+    codeBlock([
+      '  // Linux device file abstraction:',
+      '',
+      '  $ ls -l /dev/sda',
+      '  brw-rw---- 1 root disk 8, 0 /dev/sda',
+      '  │           │       │  │    └── name',
+      '  │           │       │  └── major:minor',
+      '  │           │       └── device group',
+      '  │           └── owner',
+      '  └── b=block, c=character',
+      '',
+      '  // Character device: streams of bytes (keyboard, serial port)',
+      '  // Block device: random access, blocks (SSD, HDD)',
+      '',
+      '  // Everything is a file — even hardware:',
+      '  $ cat /dev/urandom | head -c 16 | xxd  # random bytes',
+      '  $ echo "hello" > /dev/null             # black hole',
+      '  $ cat /dev/zero | head -c 1024 > file  # zero-filled file'
+    ]),
+    divider(),
+    section('Interrupts — Hardware Says "Hey!"'),
+    ['Instead of the CPU constantly checking device status (polling), devices interrupt.', 'info'],
+    diagramBlock([
+      '  POLLING (wasteful):',
+      '  CPU ────check keyboard───check disk───check mouse───check─...',
+      '       │          │            │             │',
+      '       └── 99.9% of checks say "nothing to do"',
+      '',
+      '  INTERRUPT (efficient):',
+      '  CPU ──── [runs code] ──── [runs code] ──── [runs code] ──→',
+      '                    │                     │',
+      '              [KEY PRESS]            [DISK READY]',
+      '                    ▼                     ▼',
+      '               CPU saves state        CPU reads data',
+      '               handles key           & returns to code',
+      '',
+      '  IRQ = Interrupt ReQuest. Each device has an IRQ line.',
+      '  IDT = Interrupt Descriptor Table (maps IRQ → handler)',
+      '  On interrupt: CPU saves regs, jumps to handler via IDT',
+      '  Handler does its job, returns (IRET)'
+    ]),
+    divider(),
+    section('DMA — Direct Memory Access'),
+    ['Without DMA, the CPU must copy every byte between device and memory. With DMA, the device does it directly.', 'info'],
+    codeBlock([
+      '  WITHOUT DMA (PIO — Programmed I/O):',
+      '',
+      '  CPU: read byte from disk  → store in RAM',
+      '  CPU: read byte from disk  → store in RAM',
+      '  CPU: read byte from disk  → store in RAM',
+      '  ...  (CPU is busy copying, can\'t do other work)',
+      '',
+      '  WITH DMA:',
+      '',
+      '  CPU: set up DMA transfer (source=disk, dest=RAM, size=4KB)',
+      '  CPU: [go do other work]',
+      '  DMA controller: copies data directly disk→RAM',
+      '  DMA controller: [interrupts CPU when done]',
+      '  CPU: [continues with data already in RAM]',
+      '',
+      '  // DMA is essential for high-speed devices:',
+      '  // - NVMe SSDs: 7GB/s = 1.75 billion 4-byte words per second',
+      '  // - No CPU can keep up with that byte-by-byte'
+    ]),
+    divider(),
+    section('I/O Management — The I/O Stack'),
+    diagramBlock([
+      '  ┌────────────────────────────────────────┐',
+      '  │        USER APPLICATION                 │',
+      '  │  (read(), write(), mmap())              │',
+      '  ├────────────────────────────────────────┤',
+      '  │        VIRTUAL FILE SYSTEM (VFS)        │',
+      '  │  (generic open/read/write interface)    │',
+      '  ├────────────────────────────────────────┤',
+      '  │        FILE SYSTEM (ext4, NTFS...)      │',
+      '  │  (block → inode → file mapping)         │',
+      '  ├────────────────────────────────────────┤',
+      '  │        BLOCK LAYER / BIO                │',
+      '  │  (scheduling, merging, caching)         │',
+      '  ├────────────────────────────────────────┤',
+      '  │        DEVICE DRIVER                    │',
+      '  │  (speaks the hardware protocol)          │',
+      '  ├────────────────────────────────────────┤',
+      '  │        HARDWARE (SSD/HDD/NVMe/USB)     │',
+      '  └────────────────────────────────────────┘'
+    ]),
+    tldr('Drivers abstract hardware behind a standard interface. Interrupts replace polling for efficiency. DMA lets devices talk directly to RAM. The I/O stack layers from app → VFS → FS → block → driver → hardware.'),
+  ]
+};
+
+topics.security = {
+  title: 'OS Security',
+  content: [
+    section('OS Security Fundamentals'),
+    ['"Security is not a product, but a property of the system." — building security in, not bolting it on.', 'cyan'],
+    divider(),
+    section('Authentication — Who Are You?'),
+    ['Three factors of authentication:', 'info'],
+    ['  ■ Something you KNOW — Password, PIN', 'info'],
+    ['  ■ Something you HAVE — YubiKey, phone, smart card', 'info'],
+    ['  ■ Something you ARE — Fingerprint, face, iris', 'info'],
+    codeBlock([
+      '  // Linux authentication flow:',
+      '',
+      '  1. getty/display-manager shows login prompt',
+      '  2. You type username + password',
+      '  3. login/pam executes: /etc/shadow',
+      '  4. Hash(password + salt) == stored hash?',
+      '  5. If match: create session, exec your shell',
+      '     If fail: log to /var/log/auth.log, increment fail count',
+      '',
+      '  $ cat /etc/shadow',
+      '  veera:$6$xyz.....$abc...def...:19683:0:99999:7:::',
+      '  │      └── salted SHA-512 hash',
+      '  └── username'
+    ]),
+    divider(),
+    section('Authorization — What Can You Do?'),
+    ['Unix file permissions: read, write, execute for user, group, others.', 'info'],
+    codeBlock([
+      '  $ ls -l /etc/shadow',
+      '  -rw-r----- 1 root shadow 1234 Jun 7  /etc/shadow',
+      '  │││││││││  │    │         │     └── filename',
+      '  │││││││││  │    │         └── size',
+      '  │││││││││  │    └── group owner',
+      '  │││││││││  └── user owner',
+      '  ││││││││└── others: --- (nothing)',
+      '  │││││││└── group: r-- (read only)',
+      '  ││││││└── user: rw- (read + write)',
+      '  │││││└── special bits (setuid/setgid/sticky)',
+      '  ││││└── file type: - (regular file)',
+      '',
+      '  // setuid: run as owner (e.g., passwd runs as root)',
+      '  // setgid: run as group owner',
+      '  // sticky: only owner can delete (used on /tmp)'
+    ]),
+    divider(),
+    section('Access Control Models'),
+    ['  ■ DAC (Discretionary) — Owner controls access (Unix permissions)', 'info'],
+    ['  ■ MAC (Mandatory) — System policy overrides owner (SELinux, AppArmor)', 'info'],
+    ['  ■ RBAC (Role-Based) — Access based on roles, not users', 'info'],
+    codeBlock([
+      '  // SELinux: every process has a context',
+      '  $ id -Z',
+      '  unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023',
+      '',
+      '  // Every file has a context too',
+      '  $ ls -Z /etc/shadow',
+      '  system_u:object_r:shadow_t:s0 /etc/shadow',
+      '',
+      '  // Rules: can "shadow_t" process access "shadow_t" file? Yes.',
+      '  // If Apache (httpd_t) tries to read /etc/shadow (shadow_t) → DENIED',
+      '  // Even if Unix permissions say "readable" — SELinux stops it.'
+    ]),
+    divider(),
+    section('Malware and OS Defense'),
+    ['OS-level defenses against malware:', 'info'],
+    codeBlock([
+      '  ASLR (Address Space Layout Randomization):',
+      '    Stack, heap, libraries loaded at random addresses.',
+      '    Prevents return-to-libc and ROP attacks.',
+      '',
+      '  NX (No Execute) bit:',
+      '    Data pages are not executable.',
+      '    Prevents shellcode injection.',
+      '',
+      '  Stack Canaries:',
+      '    Random value placed before return address.',
+      '    If stack overflow overwrites it → program crashes before exploit.',
+      '',
+      '  Kernel Page Table Isolation (KPTI):',
+      '    User space cannot see kernel memory.',
+      '    Mitigates Meltdown/Spectre side-channel attacks.',
+      '',
+      '  Control-Flow Integrity (CFI):',
+      '    Validates that indirect jumps/calls go to expected targets.'
+    ]),
+    tldr('OS security is layered: authentication (who you are) → authorization (what you can do) → access control (enforcement). Memory protections (ASLR, NX, canaries, KPTI) raise the bar for attackers.'),
+  ]
+};
+
+topics.virtualization = {
+  title: 'Virtualization',
+  content: [
+    section('Virtualization — One Machine, Many OSes'),
+    ['"A hypervisor lets you run multiple operating systems on a single physical machine, each believing it owns the hardware."', 'cyan'],
+    divider(),
+    section('Hypervisors — Type 1 vs Type 2'),
+    diagramBlock([
+      '  TYPE 1 (Bare Metal)        TYPE 2 (Hosted)',
+      '',
+      '  ┌──────┬──────┬──────┐    ┌──────┬──────┐',
+      '  │ VM1  │ VM2  │ VM3  │    │ App1 │ App2 │',
+      '  │(Linux)│(Win)│(BSD) │    ├──────┴──────┤',
+      '  ├──────┴──────┴──────┤    │   HOST OS   │',
+      '  │   HYPERVISOR       │    │   (Linux)    │',
+      '  │   (KVM, Xen, ESXi) │    ├─────────────┤',
+      '  ├────────────────────┤    │  HYPERVISOR  │',
+      '  │    HARDWARE        │    │  (VirtualBox) │',
+      '  └────────────────────┘    ├─────────────┤',
+      '  Examples: KVM, Xen,       │  HARDWARE   │',
+      '  VMware ESXi, Hyper-V      └─────────────┘',
+      '  Used: servers, cloud      Used: dev, testing'
+    ]),
+    divider(),
+    section('How CPU Virtualization Works'),
+    ['Modern CPUs have hardware virtualization extensions (Intel VT-x, AMD-V):', 'info'],
+    codeBlock([
+      '  // Without hardware virt: binary translation (slow)',
+      '  //   Hypervisor reads guest instructions, translates privileged',
+      '  //   instructions on-the-fly. Very slow. Used by QEMU (TCG).',
+      '',
+      '  // With hardware virt (VT-x/AMD-V):',
+      '',
+      '  CPU has two modes: root (host) and non-root (guest)',
+      '  Guest OS runs at its expected privilege level (Ring 0→ guest)',
+      '  When guest executes a privileged instruction:',
+      '    CPU traps to hypervisor (VMExit)',
+      '    Hypervisor emulates, returns to guest (VMResume)',
+      '',
+      '  // Cost of VMExit: ~1000-3000 cycles (vs ~50 for syscall)',
+      '  // This is why containers are faster than VMs'
+    ]),
+    divider(),
+    section('Memory Virtualization — Shadow Page Tables vs EPT'),
+    codeBlock([
+      '  // Problem: Guest OS manages "physical" pages (gPA)',
+      '  //          Hypervisor manages real physical pages (hPA)',
+      '  //          Two levels of translation needed',
+      '',
+      '  Shadow Page Tables (software):',
+      '    Hypervisor maintains a merged gVA→hPA mapping',
+      '    Guest changes page table → trap → hypervisor updates shadow',
+      '    Slow on page table changes (TLB flush storms)',
+      '',
+      '  EPT (Extended Page Tables — hardware):',
+      '    CPU walks TWO page tables:',
+      '      1. Guest page table: gVA → gPA',
+      '      2. EPT:            gPA → hPA',
+      '    No trapping on guest page table changes!',
+      '    ~5-10% overhead vs native'
+    ]),
+    divider(),
+    section('Containers vs Virtual Machines'),
+    diagramBlock([
+      '  VIRTUAL MACHINE:',
+      '  ┌─────────┐ ┌─────────┐ ┌─────────┐',
+      '  │ App A   │ │ App B   │ │ App C   │',
+      '  │ Libs    │ │ Libs    │ │ Libs    │',
+      '  │ Guest OS│ │ Guest OS│ │ Guest OS│',
+      '  │ (Linux) │ │ (Win)   │ │ (BSD)   │',
+      '  ├─────────┴─┴─────────┴─┴─────────┤',
+      '  │      HYPERVISOR                  │',
+      '  ├──────────────────────────────────┤',
+      '  │      HARDWARE                    │',
+      '  └──────────────────────────────────┘',
+      '  ■ Full isolation, any OS',
+      '  ■ Heavy (GB per VM, seconds to boot)',
+      '',
+      '  CONTAINER:',
+      '  ┌─────────┐ ┌─────────┐ ┌─────────┐',
+      '  │ App A   │ │ App B   │ │ App C   │',
+      '  │ Libs A  │ │ Libs B  │ │ Libs C  │',
+      '  ├─────────┴─┴─────────┴─┴─────────┤',
+      '  │      CONTAINER ENGINE (Docker)    │',
+      '  ├──────────────────────────────────┤',
+      '  │      HOST OS (Linux)              │',
+      '  ├──────────────────────────────────┤',
+      '  │      HARDWARE                    │',
+      '  └──────────────────────────────────┘',
+      '  ■ Lightweight (MB, milliseconds to start)',
+      '  ■ Share host kernel, isolated namespaces',
+      '  ■ Less isolation (same kernel for all)'
+    ]),
+    divider(),
+    section('Container Isolation — Namespaces & Cgroups'),
+    codeBlock([
+      '  // Namespaces: what the container can SEE',
+      '',
+      '  PID namespace:   Container sees its own PID tree (PID 1 inside)',
+      '  Network ns:      Own IP, ports, routing table',
+      '  Mount ns:        Own filesystem tree',
+      '  UTS ns:          Own hostname',
+      '  IPC ns:          Own inter-process communication',
+      '  User ns:         Own UID/GID mapping (root inside ≠ root outside)',
+      '',
+      '  // Cgroups: what the container can USE',
+      '',
+      '  cpu.shares:       Relative CPU weight',
+      '  memory.limit:     Max RAM + swap',
+      '  blkio.weight:     Disk I/O priority',
+      '  pids.max:         Max number of processes',
+      '',
+      '  // "Containers don\'t exist" — they are regular Linux processes',
+      '  // with carefully restricted views and resource budgets.'
+    ]),
+    tldr('VMs virtualize the hardware (each with its own kernel), containers virtualize the OS (share the host kernel). VMs are heavier but more isolated. Containers are lighter but share the kernel — both are essential.'),
+  ]
+};
+
+topics.diagram = {
+  title: 'OS Architecture Diagram',
+  content: [
+    ['FULL OPERATING SYSTEM ARCHITECTURE', 'bold lg cyan'],
+    ['(Legend: ■ Kernel   ■ System   ■ User   ■ Hardware)', 'dim'],
+    divider(),
+    ['USER SPACE (Ring 3)', 'section'],
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────────────────┐',
+      '  │                USER APPLICATIONS                         │',
+      '  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐       │',
+      '  │  │ Browser │ │ Editor  │ │ Terminal│ │ Docker  │  ...   │',
+      '  │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘       │',
+      '  │       │           │           │           │            │',
+      '  │  ┌────┴───────────┴───────────┴───────────┴────┐       │',
+      '  │  │         SYSTEM LIBRARIES (glibc, libc++)     │       │',
+      '  │  │  (printf, malloc, open, read, write, ...)    │       │',
+      '  │  └─────────────────────┬──────────────────────┘       │',
+      '  └────────────────────────│──────────────────────────────┘',
+      '                           │',
+      '              SYSTEM CALL INTERFACE (syscall)',
+      '      (read=0, write=1, open=2, close=3, fork=57...)',
+      '                           │',
+    ]),
+    ['KERNEL SPACE (Ring 0)', 'section'],
+    diagramBlock([
+      '  ┌──────────────────────────│──────────────────────────┐',
+      '  │           VFS (Virtual File System)                  │',
+      '  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐    │',
+      '  │  │ ext4 │ │ NTFS │ │ XFS  │ │ tmpfs│ │ proc │    │',
+      '  │  └──────┘ └──────┘ └──────┘ └──────┘ └──────┘    │',
+      '  ├────────────────────────────────────────────────────┤',
+      '  │  ┌──────────────────┐ ┌────────────────────────┐   │',
+      '  │  │  MEMORY MANAGER  │ │   PROCESS MANAGER      │   │',
+      '  │  │                  │ │                        │   │',
+      '  │  │  • Page allocator│ │  • Scheduler (CFS)     │   │',
+      '  │  │  • Virtual mem   │ │  • Wait queues         │   │',
+      '  │  │  • Page cache    │ │  • Signals             │   │',
+      '  │  │  • Swap          │ │  • Process groups      │   │',
+      '  │  │  • OOM killer    │ │  • Namespaces          │   │',
+      '  │  └──────────────────┘ └────────────────────────┘   │',
+      '  ├────────────────────────────────────────────────────┤',
+      '  │  ┌──────────────────┐ ┌────────────────────────┐   │',
+      '  │  │  NETWORK STACK   │ │   DEVICE DRIVERS       │   │',
+      '  │  │                  │ │                        │   │',
+      '  │  │  • TCP/IP        │ │  • Block (NVMe, SATA)  │   │',
+      '  │  │  • Socket layer  │ │  • Network (e1000, iwl)│   │',
+      '  │  │  • Netfilter     │ │  • Char (USB, TTY)     │   │',
+      '  │  │  • Routing       │ │  • Virtual (virtio)    │   │',
+      '  │  └──────────────────┘ └────────────────────────┘   │',
+      '  ├────────────────────────────────────────────────────┤',
+      '  │  ┌──────────────────────────────────────────────┐  │',
+      '  │  │    INTERRUPT HANDLING (IDT, IRQ, softIRQ)    │  │',
+      '  │  └──────────────────────────────────────────────┘  │',
+      '  └────────────────────────────────────────────────────┘',
+      '                           │',
+      '              HARDWARE ABSTRACTION LAYER',
+      '                           │',
+    ]),
+    ['HARDWARE', 'section'],
+    diagramBlock([
+      '  ┌────────────────────────────────────────────────────┐',
+      '  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐│',
+      '  │  │  CPU    │ │  RAM    │ │  DISK   │ │  NET     ││',
+      '  │  │  (cores)│ │ (DDR5)  │ │ (NVMe)  │ │ (NIC)    ││',
+      '  │  └─────────┘ └─────────┘ └─────────┘ └──────────┘│',
+      '  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐│',
+      '  │  │  GPU    │ │  USB    │ │  PCIe   │ │  BIOS    ││',
+      '  │  └─────────┘ └─────────┘ └─────────┘ └──────────┘│',
+      '  └────────────────────────────────────────────────────┘',
+    ]),
+    divider(),
+    ['Type "foundation", "process", "memory", "boot", or "filesystem" to explore each layer.', 'cyan'],
+  ]
+};
+
+topics.simulate = {
+  title: 'Scheduling Simulator',
+  content: [
+    section('CPU Scheduling Simulator'),
+    ['Enter processes as: arrival_time,burst_time (e.g., "0,8 1,4 2,9")', 'info'],
+    ['Or click one of the presets below.', 'info'],
+    divider(),
+    ['Presets:', 'subsection'],
+    ['  Demo 1: 0,8 1,4 2,9     — FCFS vs SJF vs RR comparison', 'info'],
+    ['  Demo 2: 0,24 1,3 2,3    — Convoy effect demo', 'info'],
+    ['  Demo 3: 0,5 2,5 4,5     — All equal arrival', 'info'],
+    divider(),
+    ['Type:  simulate fcfs  0,8 1,4 2,9', 'cyan'],
+    ['       simulate sjf   0,8 1,4 2,9', 'cyan'],
+    ['       simulate rr    0,8 1,4 2,9  quantum=3', 'cyan'],
+    ['       simulate compare 0,8 1,4 2,9', 'cyan'],
+  ]
+};
+
+function simulateSched(alg, args) {
+  if (!args || args.length < 2) {
+    w('Usage: simulate ' + alg + ' arrival1,burst1 arrival2,burst2 ... [quantum=N]', 'error');
+    w('Example: simulate ' + alg + ' 0,8 1,4 2,9', 'info');
+    return;
+  }
+  let quantum = 2;
+  const processes = [];
+  for (const a of args) {
+    if (a.startsWith('quantum=')) { quantum = parseInt(a.split('=')[1]); continue; }
+    const parts = a.split(',').map(Number);
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      processes.push({at: parts[0], bt: parts[1], rem: parts[1], id: processes.length + 1});
+    }
+  }
+  if (processes.length === 0) { w('No valid processes', 'error'); return; }
+  processes.sort((a, b) => a.at - b.at);
+  const n = processes.length;
+  let time = 0, completed = 0, totalWT = 0, totalTAT = 0;
+  let schedule = '', idx = 0;
+  const orig = processes.map(p => ({...p}));
+
+  w('', 'divider');
+  w('SIMULATION: ' + alg.toUpperCase(), 'bold cyan');
+  w('Processes: ' + processes.map(p => `P${p.id}(arr=${p.at},burst=${p.bt})`).join(', '), 'info');
+  w('', 'divider');
+
+  if (alg === 'fcfs') {
+    let q = [...processes].sort((a, b) => a.at - b.at);
+    const timeline = [];
+    while (q.length > 0) {
+      if (time < q[0].at) time = q[0].at;
+      const p = q.shift();
+      const start = time;
+      time += p.bt;
+      const tat = time - p.at;
+      const wt = tat - p.bt;
+      totalWT += wt; totalTAT += tat;
+      timeline.push({id: p.id, start, end: time});
+    }
+    drawTimeline(timeline);
+    w('', 'divider');
+    w('Avg Waiting Time: ' + (totalWT / n).toFixed(2), 'yellow');
+    w('Avg Turnaround:   ' + (totalTAT / n).toFixed(2), 'yellow');
+  }
+  else if (alg === 'sjf') {
+    let q = [...processes].map(p => ({...p}));
+    const timeline = [];
+    while (q.length > 0) {
+      const available = q.filter(p => p.at <= time);
+      if (available.length === 0) { time = Math.min(...q.map(p => p.at)); continue; }
+      available.sort((a, b) => a.bt - b.bt);
+      const p = available[0];
+      q = q.filter(x => x !== p);
+      const start = time;
+      time += p.bt;
+      const tat = time - p.at;
+      const wt = tat - p.bt;
+      totalWT += wt; totalTAT += tat;
+      timeline.push({id: p.id, start, end: time});
+    }
+    drawTimeline(timeline);
+    w('', 'divider');
+    w('Avg Waiting Time: ' + (totalWT / n).toFixed(2), 'yellow');
+    w('Avg Turnaround:   ' + (totalTAT / n).toFixed(2), 'yellow');
+  }
+  else if (alg === 'rr') {
+    let q = [...processes].map(p => ({...p}));
+    const timeline = [];
+    let currentTime = 0;
+    let readyQueue = [];
+    let allDone = false;
+    while (!allDone) {
+      const newProcs = q.filter(p => p.at <= currentTime && p.rem > 0 && !readyQueue.includes(p) && !timeline.find(t => t.id === p.id && t.end > currentTime - 1));
+      readyQueue.push(...newProcs.filter(p => !readyQueue.includes(p)));
+      if (readyQueue.length === 0) { currentTime++; continue; }
+      const p = readyQueue.shift();
+      const exec = Math.min(quantum, p.rem);
+      const start = currentTime;
+      currentTime += exec;
+      p.rem -= exec;
+      timeline.push({id: p.id, start, end: currentTime});
+      const newOnes = q.filter(x => x.at > start && x.at <= currentTime && x.rem > 0 && !readyQueue.includes(x));
+      readyQueue.push(...newOnes);
+      if (p.rem > 0) readyQueue.push(p);
+      allDone = q.every(p => p.rem === 0);
+    }
+    drawTimeline(timeline);
+    const pTimes = {};
+    timeline.forEach(t => {
+      if (!pTimes[t.id]) pTimes[t.id] = {end: 0, start: Infinity, total: 0};
+      if (t.start < pTimes[t.id].start) pTimes[t.id].start = t.start;
+      if (t.end > pTimes[t.id].end) pTimes[t.id].end = t.end;
+      pTimes[t.id].total += t.end - t.start;
+    });
+    Object.entries(pTimes).forEach(([id, t]) => {
+      const p = processes.find(x => x.id === parseInt(id));
+      const tat = t.end - p.at;
+      const wt = tat - p.bt;
+      totalWT += wt; totalTAT += tat;
+    });
+    w('', 'divider');
+    w('Quantum: ' + quantum, 'info');
+    w('Avg Waiting Time: ' + (totalWT / n).toFixed(2), 'yellow');
+    w('Avg Turnaround:   ' + (totalTAT / n).toFixed(2), 'yellow');
+  }
+  else if (alg === 'compare') {
+    ['FCFS', 'SJF', 'RR'].forEach(a => {
+      const copy = processes.map(p => ({...p}));
+      let t = 0, twt = 0, ttat = 0;
+      if (a === 'FCFS') {
+        const sorted = [...copy].sort((a,b) => a.at - b.at);
+        const tl = [];
+        sorted.forEach(p => { if (t < p.at) t = p.at; t += p.bt; tl.push({id:p.id,start:t-p.bt,end:t}); });
+        const stats = copy.map(p => { const end = tl.filter(x => x.id===p.id).pop().end; const tat = end - p.at; const wt = tat - p.bt; return {wt,tat}; });
+        w(`${a}: Avg WT=${(stats.reduce((s,x)=>s+x.wt,0)/n).toFixed(2)}  Avg TAT=${(stats.reduce((s,x)=>s+x.tat,0)/n).toFixed(2)}`, 'info');
+      } else if (a === 'SJF') {
+        let q = [...copy]; t = 0; const tl = [];
+        while (q.length) {
+          const avail = q.filter(p => p.at <= t);
+          if (!avail.length) { t = Math.min(...q.map(p => p.at)); continue; }
+          avail.sort((a,b) => a.bt - b.bt);
+          const p = avail[0]; q = q.filter(x => x !== p);
+          t += p.bt; tl.push({id:p.id,start:t-p.bt,end:t});
+        }
+        const stats = copy.map(p => { const end = tl.filter(x => x.id===p.id).pop().end; const tat = end - p.at; const wt = tat - p.bt; return {wt,tat}; });
+        w(`${a}: Avg WT=${(stats.reduce((s,x)=>s+x.wt,0)/n).toFixed(2)}  Avg TAT=${(stats.reduce((s,x)=>s+x.tat,0)/n).toFixed(2)}`, 'info');
+      } else {
+        let q = [...copy]; t = 0; const tl = [];
+        let rq = []; let done = false;
+        while (!done) {
+          const newOnes = q.filter(p => p.at <= t && p.rem > 0 && !rq.includes(p));
+          rq.push(...newOnes.filter(p => !rq.includes(p)));
+          if (!rq.length) { t++; continue; }
+          const p = rq.shift();
+          const ex = Math.min(quantum, p.rem);
+          const s = t; t += ex; p.rem -= ex;
+          tl.push({id:p.id,start:s,end:t});
+          const later = q.filter(x => x.at > s && x.at <= t && x.rem > 0 && !rq.includes(x));
+          rq.push(...later);
+          if (p.rem > 0) rq.push(p);
+          done = q.every(p => p.rem === 0);
+        }
+        const pEnds = {};
+        tl.forEach(x => { if (!pEnds[x.id] || x.end > pEnds[x.id]) pEnds[x.id] = x.end; });
+        const stats = copy.map(p => { const end = pEnds[p.id]; const tat = end - p.at; const wt = tat - p.bt; return {wt,tat}; });
+        w(`${a}(q=${quantum}): Avg WT=${(stats.reduce((s,x)=>s+x.wt,0)/n).toFixed(2)}  Avg TAT=${(stats.reduce((s,x)=>s+x.tat,0)/n).toFixed(2)}`, 'info');
+      }
+    });
+    w('', 'divider');
+    w('FCFS minimizes waiting time variance.', 'dim');
+    w('SJF minimizes average waiting time (optimal).', 'dim');
+    w('RR guarantees fairness at the cost of context switches.', 'dim');
+  }
+}
+
+function drawTimeline(timeline) {
+  if (timeline.length === 0) return;
+  const maxTime = Math.max(...timeline.map(t => t.end));
+  const maxId = Math.max(...timeline.map(t => t.id));
+  const scale = Math.min(400 / maxTime, 20);
+  const colors = ['#b8cc52','#95e6cb','#f9c440','#ff6c6c','#c594c5','#5fa8d3','#f5a97f','#a6d189'];
+
+  for (let id = 1; id <= maxId; id++) {
+    const parts = timeline.filter(t => t.id === id);
+    if (parts.length === 0) continue;
+    let line = `P${id} `;
+    const bar = document.createElement('div');
+    bar.style.display = 'flex';
+    bar.style.alignItems = 'center';
+    bar.style.gap = '2px';
+    bar.style.marginBottom = '4px';
+    const label = document.createElement('span');
+    label.style.color = 'var(--dim)';
+    label.style.fontSize = '11px';
+    label.style.width = '24px';
+    label.textContent = `P${id}`;
+    bar.appendChild(label);
+
+    parts.forEach(t => {
+      const w = Math.max(Math.round((t.end - t.start) * scale), 6);
+      const seg = document.createElement('div');
+      seg.style.width = w + 'px';
+      seg.style.height = '18px';
+      seg.style.background = colors[(id - 1) % colors.length];
+      seg.style.borderRadius = '3px';
+      seg.style.opacity = '0.85';
+      seg.style.position = 'relative';
+      seg.title = `P${id}: ${t.start}-${t.end}`;
+      bar.appendChild(seg);
+    });
+
+    term.appendChild(bar);
+  }
+
+  // Time axis
+  const axis = document.createElement('div');
+  axis.style.display = 'flex';
+  axis.style.marginTop = '4px';
+  axis.style.color = 'var(--dim)';
+  axis.style.fontSize = '10px';
+  axis.style.paddingLeft = '28px';
+  for (let t = 0; t <= maxTime; t += Math.max(1, Math.floor(maxTime / 8))) {
+    const tick = document.createElement('span');
+    tick.style.width = Math.round(t * scale) - (t === 0 ? 0 : Math.round((t - Math.max(1, Math.floor(maxTime / 8))) * scale)) + 'px';
+    tick.style.display = 'inline-block';
+    tick.textContent = t;
+    axis.appendChild(tick);
+  }
+  term.appendChild(axis);
+  scrollBottom();
+}
+
+function showHelp() { run('help'); }
+
+function run(cmd) {
+  const parts = cmd.trim().split(/\s+/);
+  const command = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  w('<span style="color:var(--prompt)">$</span> ' + cmd, 'prompt-line');
+
+  if (command === 'help') { writeLines(topics.help.content); }
+  else if (command === 'foundation') { writeLines(topics.foundation.content); }
+  else if (command === 'architecture') { writeLines(topics.architecture.content); }
+  else if (command === 'boot') { writeLines(topics.boot.content); }
+  else if (command === 'process') { writeLines(topics.process.content); }
+  else if (command === 'schedule') { writeLines(topics.schedule.content); }
+  else if (command === 'threads') { writeLines(topics.threads.content); }
+  else if (command === 'sync') { writeLines(topics.sync.content); }
+  else if (command === 'memory') { writeLines(topics.memory.content); }
+  else if (command === 'virtualmem') { writeLines(topics.virtualmem.content); }
+  else if (command === 'filesystem') { writeLines(topics.filesystem.content); }
+  else if (command === 'device') { writeLines(topics.device.content); }
+  else if (command === 'security') { writeLines(topics.security.content); }
+  else if (command === 'virtualization') { writeLines(topics.virtualization.content); }
+  else if (command === 'diagram') { writeLines(topics.diagram.content); }
+  else if (command === 'simulate') {
+    if (args.length === 0) { writeLines(topics.simulate.content); }
+    else { const alg = args[0].toLowerCase(); const rest = args.slice(1); simulateSched(alg, rest); }
+  }
+  else if (command === 'clear') {
+    term.innerHTML = '';
+  }
+  else if (command === '') { }
+  else {
+    w('Unknown command: ' + command, 'error');
+    w('Type "help" to see all available commands.', 'info');
+  }
+  scrollBottom();
+}
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const cmd = input.value.trim();
+    input.value = '';
+    if (cmd) run(cmd);
+  }
+});
+
+// Boot message
+const bootLines = [
+  ['<span style="color:var(--green)">╔═══════════════════════════════════════════════╗</span>', ''],
+  ['<span style="color:var(--green)">║</span>     <span style="color:var(--cyan)">OPERATING SYSTEMS INTERACTIVE LAB</span>      <span style="color:var(--green)">║</span>', ''],
+  ['<span style="color:var(--green)">╚═══════════════════════════════════════════════╝</span>', ''],
+  '',
+  ['Welcome, student. This terminal is your OS sandbox.', 'info'],
+  ['Every command teaches a concept using: <span style="color:var(--yellow)">Problem → Mechanism → Visual → Code → TL;DR</span>', 'info'],
+  '',
+  ['Type <span style="color:var(--cyan)">help</span> to begin, or try <span style="color:var(--cyan)">foundation</span>, <span style="color:var(--cyan)">boot</span>, <span style="color:var(--cyan)">process</span>, <span style="color:var(--cyan)">diagram</span>', 'cyan'],
+];
+
+let bootIdx = 0;
+function typeBoot() {
+  if (bootIdx < bootLines.length) {
+    const l = bootLines[bootIdx];
+    if (typeof l === 'string') { w(l); }
+    else { w(l[0], l[1]); }
+    bootIdx++;
+    setTimeout(typeBoot, 60);
+  } else {
+    w('', '');
+    w('<span style="color:var(--green)">System ready. <span style="color:var(--cyan)">$ █</span>', '');
+    scrollBottom();
+  }
+}
+
+setTimeout(typeBoot, 200);
+
+// Focus input on any click
+document.addEventListener('click', () => input.focus());
+</script>
+</body>
+</html>

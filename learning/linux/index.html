@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Linux Interactive Lab</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Cascadia Code','Fira Code','Courier New',monospace}
+:root{--bg:#0a0e14;--surface:#0f1620;--border:#1a2332;--text:#b3b1ad;--green:#b8cc52;--cyan:#95e6cb;--yellow:#f9c440;--red:#ff6c6c;--dim:#525a66;--prompt:#f9c440;--highlight:rgba(184,204,82,0.12)}
+body{background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.header-title{color:var(--green);font-size:13px;font-weight:bold}
+.header-title span{color:var(--dim)}
+.header-nav{display:flex;gap:16px;font-size:12px}
+.header-nav a{color:var(--dim);text-decoration:none}
+.header-nav a:hover{color:var(--cyan)}
+#terminal{flex:1;overflow-y:auto;padding:12px 16px 0;scroll-behavior:smooth}
+#terminal::-webkit-scrollbar{width:6px}
+#terminal::-webkit-scrollbar-track{background:var(--surface)}
+#terminal::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.line{margin-bottom:2px;line-height:1.5;white-space:pre-wrap;word-break:break-word;animation:fadeIn 0.15s ease-out}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.line.prompt-line{color:var(--prompt);font-weight:bold}
+.line.error{color:var(--red)}
+.line.info{color:var(--dim)}
+.line.success{color:var(--green)}
+.line.cyan{color:var(--cyan)}
+.line.yellow{color:var(--yellow)}
+.line.dim{color:var(--dim)}
+.line.bold{font-weight:bold}
+.line.lg{font-size:1.1em;margin:6px 0}
+.line.section{color:var(--green);font-weight:bold;font-size:1.1em;margin:10px 0 4px;letter-spacing:0.5px}
+.line.subsection{color:var(--cyan);margin:6px 0 2px}
+.line.diagram{color:var(--dim);font-size:0.85em;line-height:1.2;margin:4px 0}
+.line.code{color:var(--yellow);font-size:0.85em;padding:6px 12px;margin:4px 0;border-left:2px solid var(--border);background:var(--highlight);border-radius:0 4px 4px 0}
+.line.divider{color:var(--border);margin:6px 0}
+.line.tldr{color:var(--yellow);font-style:italic;margin:8px 0 4px;padding:6px 12px;border:1px dashed var(--border);border-radius:4px}
+.line.highlight{background:var(--highlight);padding:4px 8px;border-radius:4px;margin:4px 0}
+.line.animate-bar{display:inline-block;height:14px;background:var(--green);margin-right:2px;border-radius:2px;animation:growBar 0.5s ease-out forwards;transform-origin:bottom}
+@keyframes growBar{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.cursor-blink{animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+.input-area{display:flex;align-items:center;padding:8px 16px 14px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;gap:8px}
+.input-area .prompt{color:var(--prompt);font-size:14px;user-select:none}
+.input-area input{flex:1;background:transparent;border:none;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+.input-area input::placeholder{color:var(--dim);font-size:12px}
+.suggestions{font-size:11px;color:var(--dim);padding:0 16px 4px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;flex-shrink:0}
+.suggestions span{cursor:pointer}
+.suggestions span:hover{color:var(--cyan)}
+@media(max-width:600px){.header-nav{display:none}#terminal{padding:8px 10px}.line{font-size:0.9em}}
+</style>
+</head>
+<body>
+
+<div class="header">
+<div class="header-title">Linux Interactive Lab <span>— explore, experiment, understand</span></div>
+<div class="header-nav"><a href="https://veerakumar.com">veerakumar.com</a><a href="https://github.com/theveerakumar">github</a></div>
+</div>
+
+<div id="terminal"></div>
+
+<div class="suggestions" id="suggestions">
+<span onclick="run('help')">help</span>
+<span onclick="run('kernel')">kernel</span>
+<span onclick="run('filesystem')">filesystem</span>
+<span onclick="run('permissions')">permissions</span>
+<span onclick="run('processes')">processes</span>
+<span onclick="run('network')">network</span>
+<span onclick="run('shell')">shell</span>
+<span onclick="run('package')">package</span>
+<span onclick="run('performance')">performance</span>
+<span onclick="run('security')">security</span>
+<span onclick="run('diagram')">diagram</span>
+</div>
+
+<div class="input-area">
+<span class="prompt">$</span>
+<input type="text" id="cmd" placeholder="type a command or try help" autofocus spellcheck="false" autocomplete="off">
+</div>
+
+<script>
+const term = document.getElementById('terminal');
+const input = document.getElementById('cmd');
+
+function scrollBottom() { setTimeout(() => { term.scrollTop = term.scrollHeight; }, 20); }
+
+function w(text, cls = '') {
+  const d = document.createElement('div');
+  d.className = 'line' + (cls ? ' ' + cls : '');
+  d.innerHTML = text;
+  term.appendChild(d);
+  scrollBottom();
+}
+
+function writeLines(lines) {
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      if (typeof l === 'string') w(l);
+      else w(l[0], l[1] || '');
+      if (i === lines.length - 1) scrollBottom();
+    }, i * 25);
+  });
+}
+
+function divider() { return ['─'.repeat(60), 'divider']; }
+function section(title) { return ['<span style="color:var(--green)">■</span> ' + title, 'section']; }
+function subsection(title) { return [title, 'subsection']; }
+function codeBlock(lines) { return [lines.map(l => '  ' + l).join('\n'), 'code']; }
+function diagramBlock(lines) { return [lines.join('\n'), 'diagram']; }
+function tldr(text) { return ['<span style="color:var(--yellow)">⚡</span> ' + text, 'tldr']; }
+function note(text) { return [text, 'dim']; }
+
+const topics = {};
+
+topics.help = {
+  title: 'Help',
+  content: [
+    ['Linux Interactive Lab', 'bold lg'],
+    ['Type a command to explore Linux concepts. Each topic includes the problem, mechanism, visualization, code, and a takeaway.', 'info'],
+    divider(),
+    ['CORE CONCEPTS', 'section'],
+    ['  kernel        — Linux kernel architecture, subsystems, modules', 'info'],
+    ['  filesystem    — FHS, inodes, mounts, /proc, /sys', 'info'],
+    ['  permissions   — Users, groups, chmod, ACLs, capabilities', 'info'],
+    divider(),
+    ['ADMINISTRATION', 'section'],
+    ['  processes     — Process lifecycle, signals, job control', 'info'],
+    ['  network       — Interfaces, routing, iptables, netfilter', 'info'],
+    ['  shell         — Shell fundamentals, pipes, redirection, scripting', 'info'],
+    ['  package       — apt, yum, dnf, pacman, snaps, flatpak', 'info'],
+    divider(),
+    ['ADVANCED', 'section'],
+    ['  performance   — Monitoring: top, htop, iostat, vmstat, perf', 'info'],
+    ['  security      — SELinux, AppArmor, cgroups, namespaces', 'info'],
+    divider(),
+    ['VISUALIZATIONS', 'section'],
+    ['  diagram       — Full Linux architecture ASCII map', 'info'],
+    divider(),
+    ['<span style="color:var(--cyan)">Pro tip:</span> Every topic has real commands, code examples, and a "⚡" TL;DR.', 'info'],
+    ['<span style="color:var(--cyan)">Try:</span> kernel → filesystem → permissions → processes → shell', 'info'],
+  ]
+};
+
+topics.kernel = {
+  title: 'Linux Kernel Architecture',
+  content: [
+    section('Linux Kernel Architecture'),
+    ['"The Linux kernel is a monolithic, modular, Unix-like operating system kernel."', 'cyan'],
+    note('Unlike microkernels, Linux runs all major subsystems in kernel space for performance. But it supports loadable kernel modules (LKMs) to keep the core small.'),
+    divider(),
+    section('Kernel Subsystems'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────────┐',
+      '  │                USER APPLICATIONS                  │',
+      '  │  (init, bash, nginx, chrome, python, docker...)  │',
+      '  ├──────────────────────────────────────────────────┤',
+      '  │               SYSTEM CALL INTERFACE               │',
+      '  │  open()  read()  write()  ioctl()  mmap()  exec()│',
+      '  ├──────────┬──────────┬──────────┬────────────────┤',
+      '  │ PROCESS  │  MEMORY  │  VIRTUAL │   NETWORK      │',
+      '  │ MANAGER  │ MANAGER  │  FILE    │   STACK         │',
+      '  │  sched   │  mm      │  SYS     │   net           │',
+      '  │  fork    │  page    │  VFS     │   TCP/IP        │',
+      '  │  signals │  alloc   │  ext4    │   netfilter     │',
+      '  │  wait    │  swap    │  btrfs   │   iptables      │',
+      '  ├──────────┴──────────┴──────────┴────────────────┤',
+      '  │            DEVICE DRIVERS (char, block, net)     │',
+      '  ├──────────────────────────────────────────────────┤',
+      '  │    INTERRUPT CONTROLLER  │  TIMER  │  DMA         │',
+      '  └──────────────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Monolithic + Modular Design'),
+    codeBlock([
+      '  # See what kernel version you are running:',
+      '  $ uname -a',
+      '  Linux host 6.8.0-arch1-1 #1 SMP PREEMPT_DYNAMIC x86_64',
+      '',
+      '  # List loaded kernel modules:',
+      '  $ lsmod',
+      '  Module           Size  Used by',
+      '  nvidia         41216  12',
+      '  ext4           65644  3',
+      '  usb_storage    24576  0',
+      '',
+      '  # Module info:',
+      '  $ modinfo ext4',
+      '  filename: /lib/modules/.../ext4.ko',
+      '  license: GPL',
+      '  depends: mbcache, jbd2, crc16',
+      '',
+      '  # Load/remove a module:',
+      '  $ sudo modprobe vfat    # load',
+      '  $ sudo modprobe -r vfat # remove'
+    ]),
+    divider(),
+    section('Kernel Space vs User Space'),
+    codeBlock([
+      '  Memory layout of a Linux process:',
+      '',
+      '  0xFFFFFFFF  ┌─────────────────────┐',
+      '              │   Kernel Space       │  (1GB on 32-bit)',
+      '              │   (protected)        │',
+      '  0xC0000000  ├─────────────────────┤',
+      '              │   Stack (grows down) │',
+      '              │        │             │',
+      '              │        ▼             │',
+      '              │                      │',
+      '              │        ▲             │',
+      '              │        │             │',
+      '              │   Heap (grows up)    │',
+      '              ├─────────────────────┤',
+      '              │   Data (BSS + Data)  │',
+      '              ├─────────────────────┤',
+      '              │   Text (code)        │',
+      '  0x08048000  └─────────────────────┘',
+      '',
+      '  // The kernel maps itself into every process\'s address space.',
+      '  // Transition: syscall instruction (or int 0x80 on older)',
+      '  // switches CPU from Ring 3 to Ring 0.'
+    ]),
+    divider(),
+    section('Key Kernel Subsystems'),
+    ['<span style="color:var(--yellow)">1. Process Scheduler (CFS — Completely Fair Scheduler)</span>', 'info'],
+    ['  ■ O(1) scheduling with red-black tree', 'info'],
+    ['  ■ Each process gets a "fair" proportion of CPU time', 'info'],
+    ['  ■ nice values control priority (-20 to +19)', 'info'],
+    ['<span style="color:var(--yellow)">2. Memory Manager (MM)</span>', 'info'],
+    ['  ■ Virtual memory with 4-level page tables (x86-64)', 'info'],
+    ['  ■ Buddy allocator for contiguous physical pages', 'info'],
+    ['  ■ SLUB allocator for small kernel objects', 'info'],
+    ['  ■ OOM killer as last resort', 'info'],
+    ['<span style="color:var(--yellow)">3. Virtual File System (VFS)</span>', 'info'],
+    ['  ■ Common interface for all filesystems (ext4, XFS, btrfs, NFS...)', 'info'],
+    ['  ■ dentry cache + inode cache for fast lookups', 'info'],
+    ['<span style="color:var(--yellow)">4. Network Stack</span>', 'info'],
+    ['  ■ TCP/IP protocol stack, socket interface', 'info'],
+    ['  ■ netfilter — packet filtering framework', 'info'],
+    ['  ■ Network namespaces for containers', 'info'],
+    divider(),
+    section('/proc — The Window Into the Kernel'),
+    codeBlock([
+      '  $ cat /proc/version          # kernel version',
+      '  $ cat /proc/cpuinfo          # CPU details',
+      '  $ cat /proc/meminfo          # memory usage',
+      '  $ cat /proc/uptime           # seconds since boot',
+      '  $ ls /proc/1234/             # process 1234 info',
+      '    cmdline   cwd/  fd/   maps   root/  status',
+      '',
+      '  // /proc is a virtual filesystem — no real files.',
+      '  // Reading /proc triggers kernel code to generate data.'
+    ]),
+    tldr('Linux is a monolithic modular kernel: core subsystems in kernel space, drivers as loadable modules. Everything is a file. /proc is the kernel\'s introspection API.'),
+  ]
+};
+
+topics.filesystem = {
+  title: 'Linux Filesystem',
+  content: [
+    section('Linux Filesystem Hierarchy'),
+    ['"Everything is a file" — the Unix philosophy.', 'cyan'],
+    note('Linux organizes everything into a single directory tree starting at /. Every file, device, socket, and pipe appears as a file in this tree.'),
+    divider(),
+    section('Filesystem Hierarchy Standard (FHS)'),
+    diagramBlock([
+      '  /          ── Root, the base of everything',
+      '  ├── bin/   ── Essential command binaries (ls, cp, mv)',
+      '  ├── boot/  ── Bootloader, kernel (vmlinuz, initrd)',
+      '  ├── dev/   ── Device files (sda, tty, random)',
+      '  ├── etc/   ── System configuration files',
+      '  ├── home/  ── User home directories',
+      '  ├── lib/   ── Shared libraries (like DLLs)',
+      '  ├── media/ ── Mount points for removable media',
+      '  ├── mnt/   ── Temporary mount points',
+      '  ├── opt/   ── Optional third-party software',
+      '  ├── proc/  ── Virtual FS for process & kernel info',
+      '  ├── root/  ── Root user home directory',
+      '  ├── run/   ── Runtime variable data (pids, sockets)',
+      '  ├── sbin/  ── System/admin binaries (fdisk, iptables)',
+      '  ├── sys/   ── Virtual FS for device & kernel info',
+      '  ├── tmp/   ── Temporary files (cleared on boot)',
+      '  ├── usr/   ── User system resources (the big one)',
+      '  │   ├── bin/  ── Most user commands',
+      '  │   ├── lib/  ── Libraries',
+      '  │   └── share/── Arch-independent data',
+      '  └── var/   ── Variable data (logs, spools, caches)',
+      '      ├── log/  ── System logs',
+      '      └── cache/── Application caches'
+    ]),
+    divider(),
+    section('Inodes — The Metadata Backbone'),
+    codeBlock([
+      '  $ stat file.txt',
+      '    File: file.txt',
+      '    Size: 2048        Blocks: 8          IO Block: 4096',
+      '  Device: 801h/2049d  Inode: 789456      Links: 1',
+      '  Access: (0644/-rw-r--r--)  Uid: ( 1000/ veera)',
+      '  Gid: ( 1000/ veera)',
+      '  Access: 2026-06-01 10:00:00',
+      '  Modify: 2026-06-01 09:30:00',
+      '  Change: 2026-06-01 09:30:00',
+      '',
+      '  // The inode stores EVERYTHING except the filename',
+      '  // and the file content itself.',
+      '  // Filename → dentry → inode → data blocks.',
+      '',
+      '  $ ls -di /',
+      '  2 /  # root inode is always 2'
+    ]),
+    divider(),
+    section('Mounting — Building the Tree'),
+    codeBlock([
+      '  # Mount a filesystem',
+      '  $ mount /dev/sda1 /mnt/data',
+      '',
+      '  # View all mounted filesystems',
+      '  $ mount | head -5',
+      '  proc on /proc type proc (rw,nosuid,nodev)',
+      '  sysfs on /sys type sysfs (rw,nosuid,nodev)',
+      '  /dev/sda2 on / type ext4 (rw,relatime)',
+      '  /dev/sda1 on /boot type ext4 (rw,relatime)',
+      '',
+      '  # The mount table lives in /etc/fstab:',
+      '  $ cat /etc/fstab',
+      '  UUID=...  /       ext4  defaults  0  1',
+      '  UUID=...  /boot   ext4  defaults  0  2',
+      '  UUID=...  swap    swap  defaults  0  0',
+      '',
+      '  // mount --bind: attach a directory to another path',
+      '  // mount -t tmpfs: RAM-based filesystem',
+      '  // mount --make-rshared: share mounts into containers'
+    ]),
+    divider(),
+    section('Filesystem Types Compared'),
+    diagramBlock([
+      '  EXT4        XFS         BTRFS        ZFS',
+      '  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐',
+      '  │Journal │ │Journal │ │Cow+Snap│ │Cow+Snap│',
+      '  │Bitmap  │ │B-tree  │ │B-tree  │ │B-tree  │',
+      '  │Extents │ │Extents │ │Subvol  │ │Pool    │',
+      '  └────────┘ └────────┘ └────────┘ └────────┘',
+      '  Default    RHEL/Win  Snapshots  Advanced',
+      '  Linux FS   Server    +RAID     Pooling',
+      '',
+      '  $ df -hT  # see filesystem types and usage',
+      '  Filesystem     Type  Size  Used Avail Use%',
+      '  /dev/sda2      ext4  256G  120G  136G  47%',
+      '  /dev/sda1      ext4  512M   45M  467M   9%'
+    ]),
+    tldr('Linux has a single unified tree rooted at /. Everything is a file. Inodes hold metadata. Mounting attaches filesystems to the tree. /proc and /sys are virtual — they expose kernel data as files.'),
+  ]
+};
+
+topics.permissions = {
+  title: 'Linux Permissions',
+  content: [
+    section('Linux Permissions Model'),
+    ['"Linux uses a simple but powerful permission model: users, groups, and everyone else."', 'cyan'],
+    divider(),
+    section('Users & Groups'),
+    codeBlock([
+      '  $ id',
+      '  uid=1000(veera) gid=1000(veera)',
+      '  groups=1000(veera),4(adm),27(sudo),998(docker)',
+      '',
+      '  # Every process runs as a user.',
+      '  # root (uid 0) can do ANYTHING — "with great power..."',
+      '',
+      '  $ whoami     # current user',
+      '  $ cat /etc/passwd  # user database',
+      '  veera:x:1000:1000:Veera:/home/veera:/bin/bash',
+      '  $ cat /etc/group   # group database',
+      '  docker:x:998:veera'
+    ]),
+    divider(),
+    section('File Permissions: rwx'),
+    diagramBlock([
+      '  $ ls -l script.sh',
+      '  -rwxr-xr-- 1 veera devops 1024 Jun 1 10:00 script.sh',
+      '  ││││││││││  │      │      │     │         │',
+      '  │││││││││└── other permissions (read)',
+      '  ││││││││└─── other permissions (execute)',
+      '  │││││││└──── other permissions (write)',
+      '  ││││││└───── group permissions (read+execute)',
+      '  │││││└────── group permissions (write)',
+      '  ││││└─────── group permissions (execute)',
+      '  │││└──────── user permissions (read+write+execute)',
+      '  ││└───────── user permissions (write)',
+      '  │└────────── user permissions (execute)',
+      '  └─────────── file type (-=file, d=dir, l=symlink)',
+      '',
+      '  Permissions in octal:',
+      '  0 ---  1 --x  2 -w-  3 -wx',
+      '  4 r--  5 r-x  6 rw-  7 rwx',
+      '',
+      '  chmod 755 file  =>  rwxr-xr-x',
+      '  chmod 644 file  =>  rw-r--r--'
+    ]),
+    divider(),
+    section('Ownership: chown & chgrp'),
+    codeBlock([
+      '  # Change file owner and group',
+      '  $ sudo chown veera:devops file.txt',
+      '  $ sudo chown veera: file.txt    # keep current group',
+      '  $ sudo chown :devops file.txt   # just the group',
+      '  $ chgrp devops file.txt         # same (if permitted)',
+      '',
+      '  // Only root can change ownership.',
+      '  // A user can chgrp their own file to a group they',
+      '  // belong to (if the file is theirs).'
+    ]),
+    divider(),
+    section('Special Permissions'),
+    codeBlock([
+      '  SUID  (4xxx) — Run as file owner, not the executor',
+      '  SGID  (2xxx) — Inherit group from directory',
+      '  Sticky (1xxx) — Only owner can delete their files',
+      '',
+      '  $ ls -la /usr/bin/passwd',
+      '  -rwsr-xr-x 1 root root 68K Apr 1 12:00 /usr/bin/passwd',
+      '    ↑ SUID bit — runs as root even if you execute it',
+      '',
+      '  # Set special bits:',
+      '  $ chmod u+s file   # SUID (4)',
+      '  $ chmod g+s dir    # SGID (2) — new files inherit group',
+      '  $ chmod +t /tmp    # Sticky (1) — /tmp is sticky',
+      '',
+      '  $ ls -la / | grep tmp',
+      '  drwxrwxrwt 10 root root 4096 Jun  1  /tmp',
+      '             ↑ t = sticky bit'
+    ]),
+    divider(),
+    section('Access Control Lists (ACLs)'),
+    codeBlock([
+      '  # Extended permissions beyond user/group/other',
+      '  $ setfacl -m u:alice:rwx file.txt',
+      '  $ setfacl -m g:devops:rx file.txt',
+      '  $ getfacl file.txt',
+      '  # file: file.txt',
+      '  # owner: veera',
+      '  # group: veera',
+      '  user::rw-',
+      '  user:alice:rwx',
+      '  group::r--',
+      '  group:devops:r-x',
+      '  mask::rwx',
+      '  other::r--',
+      '',
+      '  $ ls -la file.txt  # note the + at the end',
+      '  -rw-rwxr--+ 1 veera veera 0 Jun 1  file.txt',
+      '            ↑ + means ACLs are set'
+    ]),
+    divider(),
+    section('Linux Capabilities'),
+    codeBlock([
+      '  # Fine-grained privileges instead of "root or nothing"',
+      '  # Instead of running a process as root, grant specific caps:',
+      '',
+      '  CAP_NET_BIND_SERVICE  — bind to ports < 1024',
+      '  CAP_SYS_ADMIN         — mount, swapon, etc.',
+      '  CAP_NET_RAW           — raw sockets',
+      '  CAP_DAC_OVERRIDE      — bypass file permissions',
+      '  CAP_KILL              — kill any process',
+      '',
+      '  # Set capabilities on a binary:',
+      '  $ sudo setcap cap_net_bind_service+ep /usr/bin/myapp',
+      '',
+      '  # View capabilities:',
+      '  $ getcap /usr/bin/ping',
+      '  /usr/bin/ping = cap_net_raw+ep',
+      '  $ cat /proc/1/status | grep Cap',
+      '  CapInh: 0000000000000000'
+    ]),
+    tldr('Linux permissions: rwx for user/group/other. SUID/SGID/Sticky for special cases. ACLs for fine-grained control. Capabilities for root-free privilege separation.'),
+  ]
+};
+
+topics.processes = {
+  title: 'Linux Process Management',
+  content: [
+    section('Linux Process Management'),
+    ['"In Linux, a process is a running program — insulated by virtual memory and tracked by the kernel."', 'cyan'],
+    divider(),
+    section('Process States'),
+    diagramBlock([
+      '        ┌──────────┐',
+      '        │   TASK_  │  Running or runnable',
+      '        │ RUNNING  │  (on CPU or waiting)',
+      '        └────┬─────┘',
+      '             │',
+      '    ┌────────┼────────┐',
+      '    ▼        ▼        ▼',
+      ' ┌──────┐ ┌──────┐ ┌──────┐',
+      ' │TASK_ │ │TASK_ │ │TASK_ │',
+      ' │INTER │ │STOP  │ │ZOMBIE│',
+      ' │RUPT  │ │PED   │ │      │',
+      ' │IBLE  │ │(SIG  │ │(dead │',
+      ' │(wait │ │STOP) │ │,wait │',
+      ' │I/O)  │ │      │ │ing)  │',
+      ' └──────┘ └──────┘ └──────┘',
+      '',
+      '  $ ps aux  # process states in STAT column',
+      '  STAT = R(running) S(sleeping) D(uninterruptible)',
+      '         Z(zombie) T(stopped)'
+    ]),
+    divider(),
+    section('Process Creation: fork + exec'),
+    codeBlock([
+      '  // The classic fork + exec pattern:',
+      '  pid_t pid = fork();  // clone this process',
+      '  if (pid == 0) {',
+      '    // Child process',
+      '    exec("/bin/ls", ["ls", "-l"], envp);',
+      '    // exec replaces the child completely',
+      '  } else {',
+      '    // Parent process, pid = child PID',
+      '    wait(&status);  // wait for child to finish',
+      '  }',
+      '',
+      '  $ strace -f -e fork,exec ls',
+      '  // See the actual system calls'
+    ]),
+    divider(),
+    section('Process Table & PID 1'),
+    codeBlock([
+      '  $ ps -eo pid,ppid,cmd --forest',
+      '    PID  PPID  CMD',
+      '      1     0  /sbin/init (systemd)',
+      '    567     1   ├─ /usr/lib/systemd-journald',
+      '    720     1   ├─ /usr/lib/systemd-udevd',
+      '   1095     1   ├─ /usr/lib/NetworkManager',
+      '   2134  1095   │   └─ dhcpcd',
+      '   5342     1   ├─ sshd',
+      '   5343  5342   │   └─ sshd: veera [priv]',
+      '   5344  5343   │       └─ sshd: veera@pts/0',
+      '   5345  5344   │           └─ -bash',
+      '   7890  5345   │               └─ ps -eo pid,ppid,cmd',
+      '',
+      '  // PID 1 (systemd) is the ancestor of ALL processes',
+      '  // Orphaned children are reparented to PID 1'
+    ]),
+    divider(),
+    section('Signals — Inter-Process Notifications'),
+    codeBlock([
+      '  $ kill -l  # list all signals (1-31 standard, 34-64 realtime)',
+      '',
+      '  Signal    Value  Action  Meaning',
+      '  ────────────────────────────────────────',
+      '  SIGHUP       1   Term    Hangup (reload config)',
+      '  SIGINT       2   Term    Ctrl+C (interrupt)',
+      '  SIGQUIT      3   Core    Ctrl+\ (quit + core dump)',
+      '  SIGKILL      9   Term    Force kill (cannot catch)',
+      '  SIGTERM     15   Term    Graceful termination',
+      '  SIGSTOP     19   Stop    Pause (cannot catch)',
+      '  SIGCONT     18   Cont    Resume after SIGSTOP',
+      '',
+      '  # Common signal usage:',
+      '  $ kill -TERM 1234       # ask PID 1234 to stop nicely',
+      '  $ kill -KILL 1234       # force kill (last resort)',
+      '  $ kill -HUP nginx       # reload nginx config',
+      '  $ kill -STOP $(pgrep chrome)  # pause Chrome',
+      '  $ kill -CONT $(pgrep chrome)  # resume'
+    ]),
+    divider(),
+    section('Job Control'),
+    codeBlock([
+      '  $ sleep 100 &           # run in background',
+      '  [1] 12345',
+      '  $ jobs                  # list background jobs',
+      '  [1]+  Running           sleep 100 &',
+      '  $ fg %1                 # bring job 1 to foreground',
+      '  $ bg %1                 # resume job 1 in background',
+      '',
+      '  # Ctrl+Z suspends a foreground job (SIGTSTP)',
+      '  # Then: bg to resume in bg, fg to resume in fg',
+      '',
+      '  $ nohup long_task &     # immune to HUP (logout)',
+      '  $ disown %1             # remove job from shell table',
+      '',
+      '  // Alternative: tmux or screen for persistent sessions'
+    ]),
+    divider(),
+    section('Process Priorities (nice)'),
+    codeBlock([
+      '  # Nice values: -20 (highest priority) to +19 (lowest)',
+      '  # Default: 0',
+      '',
+      '  $ nice -n 10 ./heavy_task  # run with low priority',
+      '  $ renice -n -5 -p 1234     # raise priority of PID 1234',
+      '',
+      '  $ top -o NI  # sort by nice value',
+      '  PID USER      NI  VIRT   RES  S CPU  MEM  COMMAND',
+      '  789 veera      0 12.4G 1.2G  S 2.0  6.2  chromium',
+      '  790 veera     19  1.2G 240M  S 0.0  1.2  updatedb',
+      '',
+      '  // Only root can set negative (higher) nice values.',
+      '  // The CFS scheduler uses nice to calculate time slices.'
+    ]),
+    tldr('Linux processes: fork() creates, exec() transforms, signals communicate, wait() reaps. PID 1 is the root of the process tree. Signals are the Unix IPC primitive.'),
+  ]
+};
+
+topics.network = {
+  title: 'Linux Networking',
+  content: [
+    section('Linux Networking Stack'),
+    ['"Linux networking is the backbone of the internet — powering everything from your laptop to cloud servers."', 'cyan'],
+    divider(),
+    section('Network Interfaces'),
+    codeBlock([
+      '  $ ip link show',
+      '  1: lo: <LOOPBACK,UP> mtu 65536',
+      '      link/loopback 00:00:00:00:00:00',
+      '  2: eth0: <BROADCAST,MULTICAST,UP> mtu 1500',
+      '      link/ether 12:34:56:78:9a:bc',
+      '  3: wlan0: <BROADCAST,MULTICAST,UP> mtu 1500',
+      '      link/ether de:ad:be:ef:00:01',
+      '',
+      '  $ ip addr show eth0',
+      '  2: eth0: ...',
+      '      inet 192.168.1.100/24 brd 192.168.1.255',
+      '      inet6 fe80::1034:56ff:fe78:9abc/64',
+      '',
+      '  // The old ifconfig is deprecated. Use ip.'
+    ]),
+    divider(),
+    section('Routing Table'),
+    codeBlock([
+      '  $ ip route show',
+      '  default via 192.168.1.1 dev eth0 proto dhcp',
+      '  192.168.1.0/24 dev eth0 proto kernel scope link',
+      '',
+      '  # Add a static route:',
+      '  $ ip route add 10.0.0.0/8 via 192.168.1.254 dev eth0',
+      '',
+      '  # Default gateway — where packets go when',
+      '  # there is no specific route:',
+      '  $ route -n',
+      '  Destination  Gateway      Genmask         Iface',
+      '  0.0.0.0      192.168.1.1  0.0.0.0         eth0',
+      '  192.168.1.0  0.0.0.0      255.255.255.0   eth0'
+    ]),
+    divider(),
+    section('Sockets — The Network API'),
+    diagramBlock([
+      '  SERVER                    CLIENT',
+      '    │                         │',
+      '    │ socket()                │',
+      '    │ bind()                  │',
+      '    │ listen()                │',
+      '    │ accept() ←──── connect()│',
+      '    │    │                    │',
+      '    │    ├─── read()/write()──┤',
+      '    │    │      (data)        │',
+      '    │    └─── close() ────────┤',
+      '    │                         │',
+      '',
+      '  $ ss -tlnp  # TCP listening sockets with processes',
+      '  State  Recv-Q Send-Q Local:Port  Peer:Port  Process',
+      '  LISTEN 0      128    0.0.0.0:22  0.0.0.0:*  (sshd)',
+      '  LISTEN 0      128    0.0.0.0:80  0.0.0.0:*  (nginx)',
+      '',
+      '  // ss replaces netstat (deprecated)'
+    ]),
+    divider(),
+    section('Netfilter & iptables/nftables'),
+    codeBlock([
+      '  # Netfilter: the packet filtering framework in the kernel',
+      '',
+      '  ┌─────┐   ┌──────────┐   ┌─────┐   ┌──────────┐',
+      '  │ IN  │──→│ PREROUTING│──→│FORWARD│──→│ POSTROUT │',
+      '  │PUT  │   │ (DNAT)    │   │      │   │ (SNAT/MASQ)│',
+      '  └──┬──┘   └─────┬────┘   └──┬───┘   └─────┬────┘',
+      '     │            │           │             │',
+      '     ▼            ▼           │             ▼',
+      '  ┌──────┐   ┌──────┐        │          OUTPUT',
+      '  │INPUT │   │OUTPUT│        │             │',
+      '  └──┬───┘   └──┬───┘        │             │',
+      '     │          │            │             │',
+      '     ▼          ▼            ▼             ▼',
+      '  [local process]        [forward]    [local process]',
+      '',
+      '  # Classic iptables rules:',
+      '  $ iptables -A INPUT -p tcp --dport 22 -j ACCEPT',
+      '  $ iptables -A INPUT -j DROP  # block everything else',
+      '',
+      '  # Modern nftables (successor):',
+      '  $ nft add rule inet filter input tcp dport 443 accept'
+    ]),
+    divider(),
+    section('DNS Resolution'),
+    codeBlock([
+      '  $ cat /etc/resolv.conf',
+      '  nameserver 1.1.1.1',
+      '  nameserver 8.8.8.8',
+      '  search home.lan',
+      '',
+      '  $ getent hosts google.com',
+      '  142.250.183.78  google.com',
+      '',
+      '  $ dig +short google.com',
+      '  142.250.183.78',
+      '',
+      '  $ host google.com',
+      '  google.com has address 142.250.183.78',
+      '',
+      '  // /etc/nsswitch.conf controls lookup order:',
+      '  // files → dns → mdns → etc.'
+    ]),
+    divider(),
+    section('Network Namespaces — Container Networking'),
+    codeBlock([
+      '  # Each container gets its own network stack',
+      '  $ ip netns add blue',
+      '  $ ip netns exec blue ip addr  # see blue\'s interfaces',
+      '',
+      '  # Connect two namespaces with a veth pair:',
+      '  $ ip link add veth0 type veth peer name veth1',
+      '  $ ip link set veth0 netns blue',
+      '  $ ip netns exec blue ip addr add 10.0.0.1/24 dev veth0',
+      '  $ ip netns exec blue ip link set veth0 up',
+      '',
+      '  # Docker uses this! Each container gets:',
+      '  # ■ its own eth0 (veth pair)',
+      '  # ■ its own routing table',
+      '  # ■ its own iptables rules',
+      '  # ■ its own DNS config'
+    ]),
+    tldr('Linux networking: ip for interfaces and routes, ss for sockets, nftables for firewalling, network namespaces for containers. The kernel network stack handles TCP/IP, routing, and filtering.'),
+  ]
+};
+
+topics.shell = {
+  title: 'Shell & Scripting',
+  content: [
+    section('The Linux Shell'),
+    ['"The shell is the Linux power user\'s interface — a REPL that becomes a programming language when needed."', 'cyan'],
+    divider(),
+    section('Shell Types'),
+    codeBlock([
+      '  $ cat /etc/shells  # available shells on your system',
+      '  /bin/sh    # Bourne shell (POSIX, minimal)',
+      '  /bin/bash  # Bourne Again SHell (default on most Linux)',
+      '  /bin/zsh   # Z shell (powerful, oh-my-zsh)',
+      '  /bin/fish  # Friendly interactive shell',
+      '',
+      '  $ echo $SHELL  # your current shell'
+    ]),
+    divider(),
+    section('Pipes & Redirection'),
+    codeBlock([
+      '  # Redirect stdout to a file (overwrite)',
+      '  $ ls > files.txt',
+      '',
+      '  # Append stdout to a file',
+      '  $ echo "new line" >> files.txt',
+      '',
+      '  # Redirect stderr',
+      '  $ ls /nonexistent 2> error.log',
+      '',
+      '  # Redirect both stdout and stderr',
+      '  $ command &> output.log',
+      '',
+      '  # Pipe — connect stdout of one command to stdin of next',
+      '  $ ps aux | grep nginx | grep -v grep',
+      '  $ cat access.log | awk \'{print $1}\' | sort | uniq -c | sort -rn',
+      '  root      3942  0.0  0.0  1232   4 ?  Ss  Jun01  0:00 nginx',
+      '',
+      '  # The classic "Useless Use of Cat" award:',
+      '  $ grep error /var/log/syslog   # no cat needed'
+    ]),
+    divider(),
+    section('Variables & Expansion'),
+    codeBlock([
+      '  # Shell variables',
+      '  $ NAME="Veera"',
+      '  $ echo "Hello, $NAME"',
+      '  Hello, Veera',
+      '',
+      '  # Command substitution',
+      '  $ echo "Today is $(date +%A)"',
+      '  $ echo "Kernel: $(uname -r)"',
+      '',
+      '  # Brace expansion',
+      '  $ echo {1..5}',
+      '  1 2 3 4 5',
+      '  $ mkdir -p project/{src,docs,tests}',
+      '',
+      '  # Globbing (filename expansion)',
+      '  $ ls *.txt    # all .txt files',
+      '  $ ls file???  # file followed by 3 chars',
+      '  $ ls [abc]*  # starts with a, b, or c',
+      '',
+      '  # Exit codes: 0 = success, non-0 = failure',
+      '  $ ls /exists && echo "yes" || echo "no"'
+    ]),
+    divider(),
+    section('Common One-Liners'),
+    codeBlock([
+      '  # Find the largest files',
+      '  $ du -sh /* 2>/dev/null | sort -rh | head -10',
+      '',
+      '  # Find files modified in the last day',
+      '  $ find . -mtime -1 -type f',
+      '',
+      '  # Count lines of code',
+      '  $ find . -name "*.py" | xargs wc -l | tail -1',
+      '',
+      '  # Search and replace in files',
+      '  $ sed -i "s/old/new/g" *.txt',
+      '',
+      '  # Monitor a log in real time',
+      '  $ tail -f /var/log/syslog',
+      '',
+      '  # Processes by memory usage',
+      '  $ ps aux --sort=-%mem | head',
+      '',
+      '  # Show listening ports with process names',
+      '  $ ss -tulnp'
+    ]),
+    divider(),
+    section('Shell Scripting Basics'),
+    codeBlock([
+      '  #!/bin/bash',
+      '  # A simple backup script',
+      '',
+      '  set -euo pipefail  # strict mode',
+      '',
+      '  SRC=${1:-/home/veera/documents}',
+      '  DEST=${2:-/tmp/backup}',
+      '  DATE=$(date +%Y%m%d_%H%M%S)',
+      '',
+      '  if [ ! -d "$SRC" ]; then',
+      '    echo "Error: $SRC not found" >&2',
+      '    exit 1',
+      '  fi',
+      '',
+      '  mkdir -p "$DEST"',
+      '  tar -czf "$DEST/backup_$DATE.tar.gz" "$SRC"',
+      '  echo "Backup completed: $DEST/backup_$DATE.tar.gz"',
+      '',
+      '  // Key constructs:',
+      '  //  if [ condition ]; then ... fi',
+      '  //  for i in list; do ... done',
+      '  //  while read line; do ... done',
+      '  //  case "$var" in pattern) ... ;; esac'
+    ]),
+    divider(),
+    section('Environment & Startup Files'),
+    diagramBlock([
+      '  Login shell:',
+      '  /etc/profile → ~/.profile (or ~/.bash_profile)',
+      '',
+      '  Interactive non-login:',
+      '  /etc/bash.bashrc → ~/.bashrc',
+      '',
+      '  Every shell:',
+      '  /etc/environment — read by pam_env',
+      '',
+      '  $ echo $PATH  # where the shell looks for executables',
+      '  /usr/local/bin:/usr/bin:/bin:/opt/bin',
+      '',
+      '  // ~/.bashrc aliases every power user has:',
+      '  alias ll="ls -alF"',
+      '  alias la="ls -A"',
+      '  alias grep="grep --color=auto"',
+      '  alias ..="cd .."'
+    ]),
+    tldr('The shell is your Linux command interface: pipes connect programs, redirection controls I/O, variables store state, and scripts automate everything. Master the shell, master Linux.'),
+  ]
+};
+
+topics.package = {
+  title: 'Package Management',
+  content: [
+    section('Linux Package Management'),
+    ['"Package managers are the app stores of Linux — installing, updating, and removing software from trusted repositories."', 'cyan'],
+    divider(),
+    section('Distribution Families'),
+    diagramBlock([
+      '  DEBIAN-BASED          RED HAT-BASED        ARCH-BASED',
+      '  ┌──────────────┐     ┌──────────────┐     ┌──────────┐',
+      '  │ Ubuntu       │     │ RHEL          │     │ Arch     │',
+      '  │ Debian       │     │ Fedora        │     │ Manjaro  │',
+      '  │ Pop!_OS      │     │ CentOS        │     │ Endeavor │',
+      '  │ Mint         │     │ Rocky Linux   │     │          │',
+      '  ├──────────────┤     ├──────────────┤     ├──────────┤',
+      '  │ apt / dpkg   │     │ dnf / yum /   │     │ pacman   │',
+      '  │ .deb         │     │ rpm           │     │ .pkg.tar │',
+      '  └──────────────┘     └──────────────┘     └──────────┘'
+    ]),
+    divider(),
+    section('APT (Debian/Ubuntu)'),
+    codeBlock([
+      '  # Update package lists from repositories',
+      '  $ sudo apt update',
+      '',
+      '  # Upgrade all packages',
+      '  $ sudo apt upgrade',
+      '',
+      '  # Full distribution upgrade',
+      '  $ sudo apt full-upgrade',
+      '',
+      '  # Search for a package',
+      '  $ apt search nginx',
+      '',
+      '  # Install a package',
+      '  $ sudo apt install nginx',
+      '',
+      '  # Remove a package (leave config)',
+      '  $ sudo apt remove nginx',
+      '',
+      '  # Purge (remove config too)',
+      '  $ sudo apt purge nginx',
+      '',
+      '  # Clean up unused dependencies',
+      '  $ sudo apt autoremove',
+      '',
+      '  # List installed packages',
+      '  $ apt list --installed | wc -l  # how many?'
+    ]),
+    divider(),
+    section('DNF (Fedora/RHEL)'),
+    codeBlock([
+      '  # Modern replacement for yum',
+      '  $ sudo dnf install nginx',
+      '  $ sudo dnf remove nginx',
+      '  $ sudo dnf update',
+      '  $ sudo dnf search nginx',
+      '  $ sudo dnf info nginx',
+      '  $ sudo dnf groupinstall "Development Tools"',
+      '  $ sudo dnf provides /usr/bin/nginx  # which package?',
+      '',
+      '  # yum (legacy, still used on older RHEL/CentOS)',
+      '  $ sudo yum install nginx'
+    ]),
+    divider(),
+    section('PACMAN (Arch)'),
+    codeBlock([
+      '  $ sudo pacman -S nginx        # install',
+      '  $ sudo pacman -R nginx        # remove',
+      '  $ sudo pacman -Rs nginx       # remove + deps',
+      '  $ sudo pacman -Syu            # full system update',
+      '  $ sudo pacman -Ss nginx       # search',
+      '  $ sudo pacman -Qi nginx       # info',
+      '  $ sudo pacman -Qe             # explicitly installed',
+      '  $ sudo pacman -Qdt            # orphaned packages',
+      '',
+      '  # AUR (Arch User Repository)',
+      '  $ yay -S google-chrome        # from AUR'
+    ]),
+    divider(),
+    section('Universal Package Formats'),
+    codeBlock([
+      '  # Snap (Canonical)',
+      '  $ snap install lxd',
+      '  $ snap list',
+      '  # Self-contained, sandboxed apps',
+      '  # Automatic updates, but slower startup',
+      '',
+      '  # Flatpak (Red Hat / freedesktop.org)',
+      '  $ flatpak install flathub org.videolan.VLC',
+      '  $ flatpak list --app',
+      '  # Sandboxed, shared runtimes, cross-distro',
+      '',
+      '  # AppImage',
+      '  $ wget https://app.image/App.AppImage',
+      '  $ chmod +x App.AppImage',
+      '  $ ./App.AppImage',
+      '  # Download and run — no install needed at all'
+    ]),
+    divider(),
+    section('Repositories & Sources'),
+    codeBlock([
+      '  # APT sources:',
+      '  $ cat /etc/apt/sources.list',
+      '  deb http://archive.ubuntu.com/ubuntu noble main',
+      '  deb http://security.ubuntu.com/ubuntu noble-security',
+      '',
+      '  # Add a PPA (Personal Package Archive):',
+      '  $ sudo add-apt-repository ppa:deadsnakes/ppa',
+      '  $ sudo apt update',
+      '',
+      '  # DNF repositories:',
+      '  $ dnf repolist',
+      '  $ cat /etc/yum.repos.d/epel.repo',
+      '',
+      '  # Manual .deb install:',
+      '  $ sudo dpkg -i package.deb        # install',
+      '  $ sudo dpkg -r package            # remove',
+      '  $ dpkg -l | grep package          # list'
+    ]),
+    tldr('apt for Debian/Ubuntu, dnf for Fedora/RHEL, pacman for Arch. All resolve dependencies automatically. Flatpak/Snap/AppImage for cross-distro apps. Choose your distro, learn its package manager.'),
+  ]
+};
+
+topics.performance = {
+  title: 'Performance Monitoring',
+  content: [
+    section('Linux Performance Monitoring'),
+    ['"You cannot fix what you cannot measure. Linux provides a full observability toolkit built into the kernel."', 'cyan'],
+    divider(),
+    section('The USE Method'),
+    ['Every resource: check Utilization, Saturation, Errors.', 'subsection'],
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────┐',
+      '  │           THE USE METHODOLOGY                │',
+      '  ├──────────────┬───────────────┬───────────────┤',
+      '  │  RESOURCE    │  UTILIZATION  │  SATURATION   │',
+      '  ├──────────────┼───────────────┼───────────────┤',
+      '  │  CPU         │  % utilization│ load average  │',
+      '  │  Memory      │  % used       │ swap usage    │',
+      '  │  Disk I/O    │  % busy       │ wait queue    │',
+      '  │  Network     │  % bandwidth  │ drops/overruns│',
+      '  └──────────────┴───────────────┴───────────────┘'
+    ]),
+    divider(),
+    section('top / htop — Real-Time View'),
+    codeBlock([
+      '  $ top',
+      '  top - 10:00:00 up 30 days, 2 users, load: 0.5 0.3 0.1',
+      '  Tasks: 180 total, 1 running, 179 sleeping',
+      '  %Cpu(s): 12.5 us, 2.3 sy, 0.0 ni, 84.7 id, 0.5 wa',
+      '  MiB Mem:  15680 total,  8240 used,  7440 free',
+      '  MiB Swap:  2048 total,     0 used,  2048 free',
+      '',
+      '    PID USER      PR  NI  VIRT   RES   SHR  S  %CPU %MEM',
+      '   1234 veera     20   0 12.4G  1.2G  800M  S  5.0  8.0',
+      '',
+      '  # Key top shortcuts:',
+      '  #  1  — toggle per-CPU view',
+      '  #  M  — sort by memory',
+      '  #  P  — sort by CPU',
+      '  #  k  — kill a process',
+      '  #  q  — quit',
+      '',
+      '  # htop — prettier, mouse-supported:',
+      '  $ htop'
+    ]),
+    divider(),
+    section('Load Average — The Broad View'),
+    codeBlock([
+      '  $ uptime',
+      '  10:00:00 up 30 days, 2 users, load: 0.5 0.3 0.1',
+      '                                       1m  5m  15m',
+      '',
+      '  # Load average = number of processes waiting + running',
+      '  # On an 8-core system:',
+      '  #   load 8.0 = perfectly saturated',
+      '  #   load 4.0 = 50% utilization',
+      '  #   load 16.0 = severely overloaded (2x capacity)',
+      '',
+      '  $ nproc  # how many cores?',
+      '  8',
+      '  # So load 4.0 means 50% CPU utilization on 8 cores'
+    ]),
+    divider(),
+    section('Memory — free & vmstat'),
+    codeBlock([
+      '  $ free -h',
+      '                total  used  free  shared  buff/cache',
+      '  Mem:           15G   8.0G  2.0G   500M      5.0G',
+      '  Swap:          2.0G     0B  2.0G',
+      '',
+      '  # Key numbers:',
+      '  #  used = actually used by apps',
+      '  #  buff/cache = kernel uses free RAM for caching',
+      '  #  available = what apps can actually use',
+      '',
+      '  $ vmstat 1 5  # snapshot every 1s, 5 times',
+      '  procs  memory    swap    io     system   cpu',
+      '   r  b  free  si  so  bi  bo  in  cs us sy id',
+      '   2  0  2.0G  0   0   12  34  200 300 12  3 85',
+      '',
+      '  # r = run queue (processes waiting for CPU)',
+      '  # b = blocked on I/O',
+      '  # si/so = swap in/out (if > 0, you need more RAM)'
+    ]),
+    divider(),
+    section('Disk I/O — iostat & iotop'),
+    codeBlock([
+      '  $ iostat -x 1 3',
+      '  Device   r/s   w/s  rkB/s  wkB/s  await  %util',
+      '  sda     45.2  12.1  1024    48     2.5    8.3',
+      '',
+      '  # await  = average I/O latency (ms)',
+      '  # %util  = percentage of time device was busy',
+      '  #          (100% = saturated, but beware of SSDs)',
+      '',
+      '  $ iotop  # per-process I/O (needs root)',
+      '  Total DISK READ: 45.2M/s | Total DISK WRITE: 12.1M/s',
+      '    PID  PRIO  DISK READ  DISK WRITE  COMMAND',
+      '   5678 be/4   45.2M/s     0.0B/s     mysqld'
+    ]),
+    divider(),
+    section('Network — nstat & ss'),
+    codeBlock([
+      '  $ nstat -az  # all network statistics',
+      '  TcpExt:TCPLoss          12    0.0',
+      '  TcpExt:TCPFastRetrans   5     0.0',
+      '  Ip:Forwarding           2     0.0',
+      '',
+      '  $ ss -s  # socket summary',
+      '  Total: 723 (kernel 1024)',
+      '  TCP:   42 (estab 18, closed 12, orphaned 0)',
+      '',
+      '  $ sar -n DEV 1 3  # network throughput (sysstat)',
+      '  $ iftop            # bandwidth by connection',
+      '  $ nethogs          # bandwidth by process'
+    ]),
+    divider(),
+    section('Perf — The Profiling Powerhouse'),
+    codeBlock([
+      '  # perf is the kernel\'s built-in profiler',
+      '',
+      '  # CPU sampling: see where time is spent',
+      '  $ sudo perf top',
+      '',
+      '  # Record a specific command',
+      '  $ sudo perf record -g ./myapp',
+      '  $ sudo perf report',
+      '',
+      '  # Stat summary',
+      '  $ sudo perf stat -e cycles,instructions,cache-misses ./myapp',
+      '',
+      '  # Tracing:',
+      '  $ sudo perf trace ls  # trace syscalls of ls',
+      '  $ sudo trace-cmd record -e sched_switch',
+      '',
+      '  // Other observability tools:',
+      '  // strace  — trace system calls',
+      '  // ltrace  — trace library calls',
+      '  // lsof    — list open files',
+      '  // bpftrace — dynamic tracing (eBPF)'
+    ]),
+    tldr('USE method (Utilization, Saturation, Errors). top/htop for CPU, free/vmstat for memory, iostat for disk, ss/nstat for network, perf for profiling. Measure everything before optimizing.'),
+  ]
+};
+
+topics.security = {
+  title: 'Linux Security',
+  content: [
+    section('Linux Security'),
+    ['"Linux security is layered: from the kernel\'s access controls to distribution hardening."', 'cyan'],
+    divider(),
+    section('The Security Layers'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────┐',
+      '  │              APPLICATION SECURITY             │',
+      '  │  (AppArmor/SELinux profiles, seccomp filters) │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │              EXECUTION SECURITY               │',
+      '  │  (cgroups, namespaces, capabilities)          │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │               ACCESS CONTROLS                 │',
+      '  │  (DAC: rwx perms, ACLs, umask)               │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │            AUTHENTICATION                     │',
+      '  │  (PAM, /etc/shadow, sudo, SSH keys)          │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │              KERNEL HARDENING                 │',
+      '  │  (ASLR, NX, stack canaries, KASLR, SELinux)  │',
+      '  └──────────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Mandatory Access Control (MAC)'),
+    codeBlock([
+      '  # DAC: Discretionary — file owner decides permissions',
+      '  # MAC: Mandatory — system policy overrides owner',
+      '',
+      '  # SELinux (NSA, default on RHEL/Fedora/CentOS)',
+      '  $ getenforce',
+      '  Enforcing',
+      '',
+      '  $ ls -Z /etc/shadow  # SELinux context',
+      '  system_u:object_r:shadow_t:s0  /etc/shadow',
+      '',
+      '  # AppArmor (default on Ubuntu/Debian/SUSE)',
+      '  $ sudo aa-status',
+      '  profiles: 42 loaded',
+      '  enforce: /usr/bin/man',
+      '           /usr/sbin/ntpd',
+      '',
+      '  # AppArmor profiles restrict WHAT a program can do',
+      '  # SELinux labels EVERYTHING (files, sockets, processes)'
+    ]),
+    divider(),
+    section('PAM — Pluggable Authentication Modules'),
+    codeBlock([
+      '  $ cat /etc/pam.d/sshd',
+      '  auth     required  pam_securetty.so',
+      '  auth     required  pam_unix.so',
+      '  auth     required  pam_nologin.so',
+      '  account  required  pam_unix.so',
+      '  password required  pam_unix.so',
+      '  session  required  pam_unix.so',
+      '',
+      '  # PAM modules handle:',
+      '  #  auth     — verifying identity (password, 2FA, biometric)',
+      '  #  account  — is access allowed? (expired, lockout)',
+      '  #  password — password changes',
+      '  #  session  — before/after session (logging, limits)',
+      '',
+      '  $ sudo passwd -l veera    # lock a user account',
+      '  $ sudo chage -M 90 veera  # password expires in 90 days'
+    ]),
+    divider(),
+    section('SSH Hardening'),
+    codeBlock([
+      '  # /etc/ssh/sshd_config — critical settings:',
+      '',
+      '  Port 2222                    # change from default 22',
+      '  PermitRootLogin no            # never allow root SSH',
+      '  PasswordAuthentication no     # key-based only',
+      '  PubkeyAuthentication yes',
+      '  AuthorizedKeysFile  .ssh/authorized_keys',
+      '  MaxAuthTries 3               # 3 attempts then drop',
+      '  ClientAliveInterval 300       # check every 5 min',
+      '  AllowUsers veera admin        # whitelist users',
+      '',
+      '  # Generate a secure key:',
+      '  $ ssh-keygen -t ed25519 -a 100',
+      '  $ ssh-copy-id user@server'
+    ]),
+    divider(),
+    section('Linux Security Modules (LSM)'),
+    codeBlock([
+      '  # The kernel supports multiple security modules:',
+      '',
+      '  $ cat /sys/kernel/security/lsm',
+      '  lockdown,capability,yama,apparmor',
+      '',
+      '  # Yama — restricts ptrace (process tracing)',
+      '  $ sysctl kernel.yama.ptrace_scope',
+      '  1  # only parent can ptrace child',
+      '',
+      '  # Seccomp — syscall filtering for containers',
+      '  # Docker uses a default seccomp profile:',
+      '  # blocks ~44 dangerous syscalls (reboot, kexec_load...)',
+      '',
+      '  # Linux capabilities (fine-grained privileges):',
+      '  $ sudo setcap cap_net_raw+ep /usr/bin/ping',
+      '  $ getcap /usr/bin/ping',
+      '  /usr/bin/ping = cap_net_raw+ep'
+    ]),
+    divider(),
+    section('Auditing'),
+    codeBlock([
+      '  # auditd — the kernel audit system',
+      '  $ sudo auditctl -w /etc/passwd -p wa -k passwd_changes',
+      '  $ sudo ausearch -k passwd_changes',
+      '',
+      '  # Check system logs',
+      '  $ journalctl -xe                  # recent system events',
+      '  $ journalctl -u sshd              # SSH daemon logs',
+      '  $ journalctl _PID=1234            # logs for a PID',
+      '',
+      '  # Common security commands:',
+      '  $ last                           # login history',
+      '  $ lastb                          # failed logins',
+      '  $ who                            # who is logged in',
+      '  $ w                              # what they are doing',
+      '  $ sudo -l                        # what sudo can you run'
+    ]),
+    divider(),
+    section('Container Security'),
+    codeBlock([
+      '  # Containers share the kernel — security is critical',
+      '',
+      '  # Run a container with restricted privileges:',
+      '  $ docker run --rm -it \\',
+      '    --cap-drop=ALL \\',
+      '    --cap-add=NET_BIND_SERVICE \\',
+      '    --security-opt=no-new-privileges \\',
+      '    --read-only-rootfs \\',
+      '    nginx',
+      '',
+      '  # Rootless Docker: run daemon without root',
+      '  $ dockerd-rootless-setuptool.sh install',
+      '',
+      '  # User namespaces: map root inside container',
+      '  # to unprivileged user outside:',
+      '  $ unshare --user --map-root-user --mount bash'
+    ]),
+    tldr('Linux security is layered: DAC (permissions) → MAC (SELinux/AppArmor) → Capabilities → Seccomp → Namespaces. SSH keys, PAM, and auditd complete the picture. Defense in depth.'),
+  ]
+};
+
+topics.diagram = {
+  title: 'Linux Architecture',
+  content: [
+    section('Complete Linux Architecture'),
+    ['The full Linux system: from hardware to application, with all major interfaces.', 'info'],
+    divider(),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────────────┐',
+      '  │                    USER SPACE                        │',
+      '  │                                                      │',
+      '  │  ┌─────────┐  ┌──────────┐  ┌───────────────────┐   │',
+      '  │  │  init   │  │  bash    │  │  nginx  │ postgres │   │',
+      '  │  │(systemd)│  │  (shell) │  │  (web)  │  (db)    │   │',
+      '  │  └────┬────┘  └────┬─────┘  └────────┬──────────┘   │',
+      '  │       │            │                  │              │',
+      '  │       └─────── pid 1 ──────────────────┘              │',
+      '  │                       │                               │',
+      '  │              ┌────────┴────────┐                     │',
+      '  │              │  GNU C Library  │  (glibc)             │',
+      '  │              │  (syscall stubs)│                     │',
+      '  │              └────────┬────────┘                     │',
+      '  ├───────────────────────┼──────────────────────────────┤',
+      '  │              SYSCALL  │  INTERFACE                   │',
+      '  │         (int 0x80 / syscall / sysenter)              │',
+      '  ├───────────────────────┼──────────────────────────────┤',
+      '  │                    KERNEL SPACE                      │',
+      '  │                                                      │',
+      '  │  ┌──────────────────────────────────────────────┐    │',
+      '  │  │         SYSTEM CALL DISPATCHER                │    │',
+      '  │  └──────┬──────────┬──────────┬──────────────────┘    │',
+      '  │         │          │          │                       │',
+      '  │  ┌──────┴──────┐ ┌─┴───────┐ ┌┴──────────────┐      │',
+      '  │  │ PROCESS     │ │ MEMORY  │ │ VIRTUAL        │      │',
+      '  │  │ SCHEDULER   │ │ MANAGER │ │ FILE SYSTEM    │      │',
+      '  │  │ (CFS)       │ │ (MM)    │ │ (VFS)          │      │',
+      '  │  │ fork/exit   │ │ page    │ │ ext4 / xfs     │      │',
+      '  │  │ signals     │ │ alloc   │ │ btrfs / tmpfs  │      │',
+      '  │  │ wait/pid    │ │ swap    │ │ /proc  /sys    │      │',
+      '  │  └─────────────┘ └─────────┘ └────────────────┘      │',
+      '  │                                                      │',
+      '  │  ┌──────────────────┐ ┌──────────────────────────┐   │',
+      '  │  │   NETWORK STACK  │ │   DEVICE DRIVERS         │   │',
+      '  │  │   TCP/IP         │ │   (char, block, net)     │   │',
+      '  │  │   netfilter      │ │   LKMs (loadable mods)   │   │',
+      '  │  │   net/sched      │ │   Probe/init/exit        │   │',
+      '  │  └──────────────────┘ └──────────────────────────┘   │',
+      '  │                                                      │',
+      '  │  ┌──────────────────────────────────────────────┐    │',
+      '  │  │       INTERRUPT CONTROLLER (APIC)            │    │',
+      '  │  └──────────────────────────────────────────────┘    │',
+      '  ├───────────────────────┼──────────────────────────────┤',
+      '  │                   HARDWARE                           │',
+      '  │  ┌─────────┐ ┌──────────┐ ┌──────┐ ┌────────────┐  │',
+      '  │  │  CPU    │ │   RAM    │ │ DISK │ │  NETWORK   │  │',
+      '  │  │ (x86-64)│ │ (DDR4)   │ │(NVMe)│ │ (1GbE NIC) │  │',
+      '  │  └─────────┘ └──────────┘ └──────┘ └────────────┘  │',
+      '  └──────────────────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('The Kernel Source Tree'),
+    codeBlock([
+      '  linux-6.8/',
+      '  ├── arch/        # Architecture-specific code (x86, arm, riscv)',
+      '  ├── block/       # Block layer (I/O scheduling)',
+      '  ├── crypto/      # Cryptographic API',
+      '  ├── drivers/     # Device drivers (the largest directory)',
+      '  ├── fs/          # Filesystems (ext4, btrfs, nfs, proc...)',
+      '  ├── include/     # Kernel headers',
+      '  ├── init/        # Initialization (main.c, version.c)',
+      '  ├── ipc/         # Inter-process communication',
+      '  ├── kernel/      # Core kernel (sched, signal, fork...)',
+      '  ├── lib/         # Kernel utility functions',
+      '  ├── mm/          # Memory management',
+      '  ├── net/         # Networking stack',
+      '  ├── scripts/     # Build scripts',
+      '  ├── security/    # Security modules (SELinux, AppArmor)',
+      '  ├── sound/       # Audio subsystem (ALSA)',
+      '  ├── tools/       # Development tools',
+      '  └── virt/        # Virtualization (KVM)'
+    ]),
+    divider(),
+    section('The Boot Process — Visual Recap'),
+    diagramBlock([
+      '  POWER ON',
+      '     │',
+      '     ▼',
+      '  ┌────────────────────────────────────────────────────┐',
+      '  │ UEFI/BIOS                                          │',
+      '  │  • POST (Power-On Self Test)                       │',
+      '  │  • Initialize hardware (RAM, PCIe, USB...)         │',
+      '  │  • Find boot device (UEFI entry or MBR)            │',
+      '  └───────────────────┬────────────────────────────────┘',
+      '                      ▼',
+      '  ┌────────────────────────────────────────────────────┐',
+      '  │ BOOTLOADER (GRUB2)                                 │',
+      '  │  • Load /boot/grub/grub.cfg                       │',
+      '  │  • Show OS selection menu                          │',
+      '  │  • Load vmlinuz (kernel) + initrd into RAM         │',
+      '  │  • Jump to kernel entry point                      │',
+      '  └───────────────────┬────────────────────────────────┘',
+      '                      ▼',
+      '  ┌────────────────────────────────────────────────────┐',
+      '  │ KERNEL INIT (start_kernel())                       │',
+      '  │  • Decompress kernel                               │',
+      '  │  • Set up page tables, enable paging               │',
+      '  │  • Initialize scheduler (idle task, PID 0)         │',
+      '  │  • Initialize memory manager (buddy allocator)     │',
+      '  │  • Mount root filesystem (initrd → real root)      │',
+      '  │  • Spawn init process (PID 1)                      │',
+      '  └───────────────────┬────────────────────────────────┘',
+      '                      ▼',
+      '  ┌────────────────────────────────────────────────────┐',
+      '  │ SYSTEMD (PID 1)                                    │',
+      '  │  • Mount all filesystems (/proc, /sys, /dev...)    │',
+      '  │  • Start udev (device manager)                     │',
+      '  │  • Load kernel modules                             │',
+      '  │  • Start networking (NetworkManager)               │',
+      '  │  • Start display manager (login screen)            │',
+      '  │  • YOU — shell ready                               │',
+      '  └────────────────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('System Calls — The API'),
+    codeBlock([
+      '  # Trace system calls of any command:',
+      '  $ strace -c ls  # summary of syscalls',
+      '  % time  seconds  calls  error  syscall',
+      '  25.00  0.0002    5     0     read',
+      '  20.00  0.0001    8     0     write',
+      '  15.00  0.0001   12     0     openat',
+      '  10.00  0.0001    3     0     mmap',
+      '',
+      '  # Top syscalls by frequency (x86-64):',
+      '  #  0  read     — read from fd',
+      '  #  1  write    — write to fd',
+      '  #  2  open     — open a file',
+      '  #  9  mmap     — map memory',
+      '  # 10  mprotect — set memory protections',
+      '  # 39  getpid   — get process ID',
+      '  # 56  clone    — create process (fork)',
+      '  # 60  exit     — terminate process',
+      '  # 63  uname    — get system info',
+      '',
+      '  # See kernel syscall table:',
+      '  $ cat /usr/include/x86_64-linux-gnu/asm/unistd_64.h'
+    ]),
+    divider(),
+    section('Key Takeaways'),
+    ['  ■ Linux is a monolithic modular kernel — fast but extensible', 'info'],
+    ['  ■ Everything is a file — devices, sockets, pipes, processes', 'info'],
+    ['  ■ The shell is the primary interface — master it', 'info'],
+    ['  ■ Cgroups + Namespaces = containers', 'info'],
+    ['  ■ VFS abstracts all filesystems under one API', 'info'],
+    ['  ■ /proc and /sys expose kernel data as files', 'info'],
+    ['  ■ System calls are the only way user space talks to kernel', 'info'],
+    ['  ■ Performance monitoring is built into the kernel (perf, eBPF)', 'info'],
+    divider(),
+    tldr('Linux: the kernel is the core, the shell is the interface, everything is a file, and containers are just cgroups + namespaces. The full stack: hardware → kernel → systemd → shell → you.'),
+  ]
+};
+
+function showHelp() { run('help'); }
+
+function run(cmd) {
+  const parts = cmd.trim().split(/\s+/);
+  const command = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  w('<span style="color:var(--prompt)">$</span> ' + cmd, 'prompt-line');
+
+  if (command === 'help') { writeLines(topics.help.content); }
+  else if (command === 'kernel') { writeLines(topics.kernel.content); }
+  else if (command === 'filesystem') { writeLines(topics.filesystem.content); }
+  else if (command === 'permissions') { writeLines(topics.permissions.content); }
+  else if (command === 'processes') { writeLines(topics.processes.content); }
+  else if (command === 'network') { writeLines(topics.network.content); }
+  else if (command === 'shell') { writeLines(topics.shell.content); }
+  else if (command === 'package') { writeLines(topics.package.content); }
+  else if (command === 'performance') { writeLines(topics.performance.content); }
+  else if (command === 'security') { writeLines(topics.security.content); }
+  else if (command === 'diagram') { writeLines(topics.diagram.content); }
+  else if (command === 'clear') {
+    term.innerHTML = '';
+  }
+  else if (command === '') { }
+  else {
+    w('Unknown command: ' + command, 'error');
+    w('Type "help" to see all available commands.', 'info');
+  }
+  scrollBottom();
+}
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const cmd = input.value.trim();
+    input.value = '';
+    if (cmd) run(cmd);
+  }
+});
+
+// Boot message
+const bootLines = [
+  ['<span style="color:var(--green)">╔═══════════════════════════════════════════════╗</span>', ''],
+  ['<span style="color:var(--green)">║</span>     <span style="color:var(--cyan)">LINUX INTERACTIVE LAB</span>                 <span style="color:var(--green)">║</span>', ''],
+  ['<span style="color:var(--green)">╚═══════════════════════════════════════════════╝</span>', ''],
+  '',
+  ['Welcome, student. This terminal is your Linux sandbox.', 'info'],
+  ['Every command teaches a concept using: <span style="color:var(--yellow)">Problem → Mechanism → Visual → Code → TL;DR</span>', 'info'],
+  '',
+  ['Type <span style="color:var(--cyan)">help</span> to begin, or try <span style="color:var(--cyan)">kernel</span>, <span style="color:var(--cyan)">filesystem</span>, <span style="color:var(--cyan)">processes</span>, <span style="color:var(--cyan)">diagram</span>', 'cyan'],
+];
+
+let bootIdx = 0;
+function typeBoot() {
+  if (bootIdx < bootLines.length) {
+    const l = bootLines[bootIdx];
+    if (typeof l === 'string') { w(l); }
+    else { w(l[0], l[1]); }
+    bootIdx++;
+    setTimeout(typeBoot, 60);
+  } else {
+    w('', '');
+    w('<span style="color:var(--green)">System ready. <span style="color:var(--cyan)">$ █</span>', '');
+    scrollBottom();
+  }
+}
+
+setTimeout(typeBoot, 200);
+
+document.addEventListener('click', () => input.focus());
+</script>
+</body>
+</html>

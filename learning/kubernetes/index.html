@@ -454,7 +454,7 @@ topics.workloads = {
       '          volumeMounts:',
       '          - name: varlog',
       '            mountPath: /var/log',
-      '        tolerations:',  # run on all nodes including control plane
+      '        tolerations:  # run on all nodes including control plane',
       '        - operator: Exists',
       '        volumes:',
       '        - name: varlog',
@@ -492,7 +492,7 @@ topics.workloads = {
       '  metadata:',
       '    name: nightly-backup',
       '  spec:',
-      '    schedule: "0 2 * * *"',  # every day at 2 AM
+      '    schedule: "0 2 * * *"  # every day at 2 AM',
       '    jobTemplate:',
       '      spec:',
       '        template:',
@@ -548,7 +548,7 @@ topics.services = {
       '    name: web-service',
       '  spec:',
       '    type: ClusterIP',
-      '    selector:',  # which pods to route to
+      '    selector:  # which pods to route to',
       '      app: web',
       '    ports:',
       '    - port: 80          # service port',
@@ -700,7 +700,7 @@ topics.config = {
       '      envFrom:',
       '      - configMapRef:',
       '          name: app-config',
-      '      env:',  # individual keys
+      '      env:  # individual keys',
       '      - name: APP_PORT',
       '        valueFrom:',
       '          configMapKeyRef:',
@@ -758,7 +758,7 @@ topics.config = {
       '    containers:',
       '    - name: app',
       '      image: myapp:latest',
-      '      env:',  # individual keys (note: valueFrom, not value)
+      '      env:  # individual keys (note: valueFrom, not value)',
       '      - name: DB_PASSWORD',
       '        valueFrom:',
       '          secretKeyRef:',
@@ -801,7 +801,7 @@ topics.config = {
       '  kind: ConfigMap',
       '  metadata:',
       '    name: app-config',
-      '  immutable: true',  # can\'t be changed — must delete/recreate
+      '  immutable: true  # can\'t be changed — must delete/recreate',
       '  data:',
       '    APP_ENV: production',
       '',
@@ -1111,10 +1111,10 @@ topics.scheduling = {
       '  resources:',
       '    requests:   # minimum guaranteed',
       '      memory: "256Mi"',
-      '      cpu: "250m"',  # 1/4 core
+      '      cpu: "250m"  # 1/4 core',
       '    limits:     # maximum allowed',
       '      memory: "512Mi"',
-      '      cpu: "500m"',  # 1/2 core
+      '      cpu: "500m"  # 1/2 core',
       '',
       '  # CPU units:',
       '  #  1 vCPU = 1000m (millicores)',
@@ -1327,7 +1327,7 @@ topics.security = {
       '  kind: ServiceAccount',
       '  metadata:',
       '    name: my-app',
-      '  automountServiceAccountToken: true',  # mount API credentials
+      '  automountServiceAccountToken: true  # mount API credentials',
       '',
       '  ---',
       '  # Use the SA in a pod:',
@@ -1378,14 +1378,14 @@ topics.security = {
       '  # Security settings at pod and container level:',
       '',
       '  spec:',
-      '    securityContext:',  # pod level (applies to all containers)
+      '    securityContext:  # pod level (applies to all containers)',
       '      runAsUser: 1001',
       '      runAsGroup: 1001',
       '      fsGroup: 1001',
       '      supplementalGroups: [2000]',
       '    containers:',
       '    - name: app',
-      '      securityContext:',  # container level (overrides pod)
+      '      securityContext:  # container level (overrides pod)',
       '        runAsNonRoot: true',
       '        privileged: false',
       '        allowPrivilegeEscalation: false',
@@ -1537,7 +1537,7 @@ topics.kubectl = {
       '  # Apply (create or update)',
       '  $ kubectl apply -f deployment.yaml',
       '  $ kubectl apply -f ./manifests/',
-      '  $ kubectl apply -k ./overlays/prod/',  # kustomize
+      '  $ kubectl apply -k ./overlays/prod/  # kustomize',
       '',
       '  # Delete',
       '  $ kubectl delete -f deployment.yaml',

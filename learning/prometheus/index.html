@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prometheus Interactive Lab</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Cascadia Code','Fira Code','Courier New',monospace}
+:root{--bg:#0a0e14;--surface:#0f1620;--border:#1a2332;--text:#b3b1ad;--green:#b8cc52;--cyan:#95e6cb;--yellow:#f9c440;--red:#ff6c6c;--dim:#525a66;--prompt:#f9c440;--highlight:rgba(184,204,82,0.12);--timing:0.02s}
+body{background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.header-title{color:var(--green);font-size:13px;font-weight:bold}
+.header-title span{color:var(--dim)}
+.header-nav{display:flex;gap:16px;font-size:12px}
+.header-nav a{color:var(--dim);text-decoration:none}
+.header-nav a:hover{color:var(--cyan)}
+#terminal{flex:1;overflow-y:auto;padding:12px 16px 0;scroll-behavior:smooth}
+#terminal::-webkit-scrollbar{width:6px}
+#terminal::-webkit-scrollbar-track{background:var(--surface)}
+#terminal::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.line{margin-bottom:2px;line-height:1.5;white-space:pre-wrap;word-break:break-word;animation:fadeIn 0.15s ease-out}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.line.prompt-line{color:var(--prompt);font-weight:bold}
+.line.error{color:var(--red)}
+.line.info{color:var(--dim)}
+.line.success{color:var(--green)}
+.line.cyan{color:var(--cyan)}
+.line.yellow{color:var(--yellow)}
+.line.dim{color:var(--dim)}
+.line.bold{font-weight:bold}
+.line.lg{font-size:1.1em;margin:6px 0}
+.line.section{color:var(--green);font-weight:bold;font-size:1.1em;margin:10px 0 4px;letter-spacing:0.5px}
+.line.subsection{color:var(--cyan);margin:6px 0 2px}
+.line.diagram{color:var(--dim);font-size:0.85em;line-height:1.2;margin:4px 0}
+.line.code{color:var(--yellow);font-size:0.85em;padding:6px 12px;margin:4px 0;border-left:2px solid var(--border);background:var(--highlight);border-radius:0 4px 4px 0}
+.line.divider{color:var(--border);margin:6px 0}
+.line.tldr{color:var(--yellow);font-style:italic;margin:8px 0 4px;padding:6px 12px;border:1px dashed var(--border);border-radius:4px}
+.line.highlight{background:var(--highlight);padding:4px 8px;border-radius:4px;margin:4px 0}
+.line.typing{overflow:hidden;border-right:2px solid var(--green);animation:typing 0.8s steps(40,end),blinkCaret 0.75s step-end infinite;max-width:fit-content}
+.line.animate-bar{display:inline-block;height:14px;background:var(--green);margin-right:2px;border-radius:2px;animation:growBar 0.5s ease-out forwards;transform-origin:bottom}
+@keyframes growBar{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes blinkCaret{50%{border-color:transparent}}
+.cursor-blink{animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+.input-area{display:flex;align-items:center;padding:8px 16px 14px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;gap:8px}
+.input-area .prompt{color:var(--prompt);font-size:14px;user-select:none}
+.input-area input{flex:1;background:transparent;border:none;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+.input-area input::placeholder{color:var(--dim);font-size:12px}
+.suggestions{font-size:11px;color:var(--dim);padding:0 16px 4px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;flex-shrink:0}
+.suggestions span{cursor:pointer}
+.suggestions span:hover{color:var(--cyan)}
+.progress-bar{display:flex;gap:2px;align-items:end;height:30px;padding:4px 0}
+.progress-bar .bar{width:24px;border-radius:3px 3px 0 0;animation:growBar 0.4s ease-out forwards}
+@media(max-width:600px){.header-nav{display:none}#terminal{padding:8px 10px}.line{font-size:0.9em}}
+</style>
+</head>
+<body>
+
+<div class="header">
+<div class="header-title">Prometheus Interactive Lab <span>— monitor everything</span></div>
+<div class="header-nav"><a href="https://veerakumar.com">veerakumar.com</a><a href="https://github.com/theveerakumar">github</a></div>
+</div>
+
+<div id="terminal"></div>
+
+<div class="suggestions" id="suggestions">
+<span onclick="run('help')">help</span>
+<span onclick="run('basics')">basics</span>
+<span onclick="run('metrics')">metrics</span>
+<span onclick="run('promql')">promql</span>
+<span onclick="run('exporters')">exporters</span>
+<span onclick="run('config')">config</span>
+<span onclick="run('alerting')">alerting</span>
+<span onclick="run('storage')">storage</span>
+<span onclick="run('advanced')">advanced</span>
+<span onclick="run('bestpractices')">bestpractices</span>
+<span onclick="run('diagram')">diagram</span>
+</div>
+
+<div class="input-area">
+<span class="prompt">$</span>
+<input type="text" id="cmd" placeholder="type a command or try help" autofocus spellcheck="false" autocomplete="off">
+</div>
+
+<script>
+const term = document.getElementById('terminal');
+const input = document.getElementById('cmd');
+
+function scrollBottom() { setTimeout(() => { term.scrollTop = term.scrollHeight; }, 20); }
+
+function w(text, cls = '') {
+  const d = document.createElement('div');
+  d.className = 'line' + (cls ? ' ' + cls : '');
+  d.innerHTML = text;
+  term.appendChild(d);
+  scrollBottom();
+}
+
+function writeLines(lines) {
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      if (typeof l === 'string') w(l);
+      else w(l[0], l[1] || '');
+      if (i === lines.length - 1) scrollBottom();
+    }, i * 25);
+  });
+}
+
+function divider() { return ['\u2500'.repeat(60), 'divider']; }
+
+function section(title) { return ['<span style="color:var(--green)">\u25a0</span> ' + title, 'section']; }
+
+function subsection(title) { return [title, 'subsection']; }
+
+function codeBlock(lines) {
+  const code = lines.map(l => '  ' + l).join('\n');
+  return [code, 'code'];
+}
+
+function diagramBlock(lines) {
+  return [lines.join('\n'), 'diagram'];
+}
+
+function tldr(text) {
+  return ['<span style="color:var(--yellow)">\u26a1</span> ' + text, 'tldr'];
+}
+
+function note(text) {
+  return [text, 'dim'];
+}
+
+const topics = {};
+
+topics.help = {
+  title: 'Help',
+  content: [
+    ['Prometheus Interactive Lab', 'bold lg'],
+    ['Type a command to explore Prometheus monitoring. Each topic includes concepts, queries, and a takeaway.', 'info'],
+    divider(),
+    ['FOUNDATIONS', 'section'],
+    ['  basics         — What is Prometheus, architecture, pull model', 'info'],
+    ['  metrics        — Metric types: counter, gauge, histogram, summary', 'info'],
+    ['  promql         — PromQL queries: selectors, functions, operators', 'info'],
+    divider(),
+    ['SETUP & CONFIG', 'section'],
+    ['  exporters      — Exporters for apps, systems, and services', 'info'],
+    ['  config         — Prometheus configuration and service discovery', 'info'],
+    ['  alerting       — Alerting rules and Alertmanager', 'info'],
+    divider(),
+    ['OPERATIONS', 'section'],
+    ['  storage        — TSDB, retention, compaction', 'info'],
+    ['  advanced       — Recording rules, federation, remote write', 'info'],
+    ['  bestpractices  — Production monitoring patterns', 'info'],
+    divider(),
+    ['VISUALIZATIONS', 'section'],
+    ['  diagram        — Prometheus architecture ASCII map', 'info'],
+    divider(),
+    ['<span style="color:var(--cyan)">Try:</span> basics \u2192 metrics \u2192 promql \u2192 exporters \u2192 alerting', 'info'],
+  ]
+};
+
+topics.basics = {
+  title: 'Prometheus Basics',
+  content: [
+    section('What Is Prometheus?'),
+    ['"Prometheus turns machines into numbers, and numbers into understanding."', 'cyan'],
+    note('Prometheus is an open-source metrics-based monitoring system and time series database. Originally built at SoundCloud in 2012, now a CNCF graduated project (second only to Kubernetes).'),
+    divider(),
+    section('Core Architecture — Pull Model'),
+    ['Unlike push-based systems (StatsD, Graphite), Prometheus PULLS metrics:', 'info'],
+    diagramBlock([
+      '  ┌──────────────┐      /metrics      ┌──────────────────┐',
+      '  │  Prometheus   │ ──────────────────→│  Target 1        │',
+      '  │  Server       │←─ metrics ────────│  (app:3000)      │',
+      '  │               │                    └──────────────────┘',
+      '  │  ┌──────────┐ │                    ┌──────────────────┐',
+      '  │  │ TSDB     │ │      /metrics      │  Target 2        │',
+      '  │  │ Storage  │ │ ──────────────────→│  (node_exporter) │',
+      '  │  └──────────┘ │←─ metrics ────────└──────────────────┘',
+      '  │               │                    ┌──────────────────┐',
+      '  │  ┌──────────┐ │      /metrics      │  Target 3        │',
+      '  │  │ PromQL   │ │ ──────────────────→│  (kube_state)    │',
+      '  │  │ Engine   │ │←─ metrics ────────└──────────────────┘',
+      '  │  └──────────┘ │',
+      '  └───────────────┘'
+    ]),
+    ['Why Pull?', 'subsection'],
+    ['  ■ Easier to detect down targets (scrape timeout = alert)', 'info'],
+    ['  ■ Control plane: you control scrape frequency', 'info'],
+    ['  ■ No need to install agents on every node', 'info'],
+    ['  ■ Works well behind firewalls (pushgateway for batch jobs)', 'info'],
+    divider(),
+    section('Key Concepts'),
+    codeBlock([
+      '  # 1. Time Series — (metric_name + labels) → values over time',
+      '  #    http_requests_total{method="GET", handler="/api"} → [1, 3, 7, ...]',
+      '',
+      '  # 2. Labels — Key-value pairs that identify a metric',
+      '  #    job="node", instance="server1:9100", env="prod"',
+      '',
+      '  # 3. Samples — The actual data point (timestamp + value)',
+      '  #    {timestamp: 1700000000, value: 42.5}',
+      '',
+      '  # 4. Scrape Interval — How often Prometheus pulls metrics',
+      '  #    Default: 15s. Common: 10s-60s',
+      '',
+      '  # 5. Multi-dimensional — Labels create dimensions',
+      '  #    Query across dimensions: sum by (method) (rate(...))',
+      '',
+      '  # 6. Pull vs Push — Prometheus scrapes; Pushgateway for batch'
+    ]),
+    divider(),
+    section('Installation'),
+    codeBlock([
+      '  # Docker (quick start):',
+      '  $ docker run -p 9090:9090 prom/prometheus',
+      '',
+      '  # Prometheus config volume:',
+      '  $ docker run -p 9090:9090 \\',
+      '    -v /path/to/prometheus.yml:/etc/prometheus/prometheus.yml \\',
+      '    prom/prometheus',
+      '',
+      '  # Binary install (Linux):',
+      '  $ wget https://github.com/prometheus/prometheus/releases/latest/\\',
+      '    download/prometheus-*.linux-amd64.tar.gz',
+      '  $ tar xvf prometheus-*.tar.gz',
+      '  $ cd prometheus-*',
+      '  $ ./prometheus --config.file=prometheus.yml',
+      '',
+      '  # Verify:',
+      '  $ curl http://localhost:9090/metrics | head -20',
+      '  # HELP go_gc_duration_seconds A summary of GC durations',
+      '  # TYPE go_gc_duration_seconds summary',
+      '  go_gc_duration_seconds{quantile="0"} 2.3e-05',
+      '',
+      '  # Open http://localhost:9090 in browser (built-in UI)'
+    ]),
+    divider(),
+    section('First Scrape'),
+    codeBlock([
+      '  # prometheus.yml — minimal config:',
+      '  global:',
+      '    scrape_interval: 15s',
+      '    evaluation_interval: 15s',
+      '',
+      '  scrape_configs:',
+      '    - job_name: "prometheus"',
+      '      static_configs:',
+      '        - targets: ["localhost:9090"]',
+      '',
+      '  # Prometheus scrapes ITSELF by default',
+      '  # Check targets: http://localhost:9090/targets',
+      '  # Try query: prometheus_tsdb_head_blocks',
+      '',
+      '  # The /metrics endpoint returns:',
+      '  #   prometheus_tsdb_head_blocks 512',
+      '  # This is a GAUGE — 512 blocks right now',
+      '  # The value goes up and down over time'
+    ]),
+    tldr('Prometheus is a pull-based, multi-dimensional time series monitoring system. Metrics are identified by name + labels and scraped at regular intervals. Built-in UI at :9090, CLI via PromQL.'),
+  ]
+};
+
+topics.metrics = {
+  title: 'Metric Types',
+  content: [
+    section('Metric Types — The Four Foundations'),
+    ['Every metric in Prometheus is one of four types.', 'info'],
+    divider(),
+    section('Counter — Only Goes Up'),
+    codeBlock([
+      '  # COUNTER: cumulative, monotonically increasing',
+      '  # Use for: requests, errors, tasks completed, bytes sent',
+      '',
+      '  # Always use rate() or increase() with counters:',
+      '  http_requests_total{method="GET"} 1024',
+      '  http_requests_total{method="POST"} 512',
+      '',
+      '  # NEVER use a counter directly — it accumulates forever',
+      '  # Correct: rate(http_requests_total[5m])   → req/sec',
+      '  # Correct: increase(http_requests_total[1h]) → total in 1hr',
+      '',
+      '  # Examples:',
+      '  #   prometheus_http_requests_total',
+      '  #   node_network_receive_bytes_total',
+      '  #   go_memstats_alloc_bytes_total'
+    ]),
+    divider(),
+    section('Gauge — Up and Down'),
+    codeBlock([
+      '  # GAUGE: snapshot value that can go up OR down',
+      '  # Use for: temperature, memory usage, queue size, connections',
+      '',
+      '  node_memory_MemFree_bytes 4294967296',
+      '  node_cpu_temperature_celsius 65.3',
+      '  prometheus_tsdb_head_blocks 512',
+      '',
+      '  # Useful functions:',
+      '  #   avg_over_time(node_memory_MemFree_bytes[1h])',
+      '  #   max_over_time(node_cpu_temperature_celsius[5m])',
+      '  #   delta(node_memory_MemFree_bytes[10m])   # change over window',
+      '  #   deriv(node_memory_MemFree_bytes[30m])    # rate of change',
+      '',
+      '  # Examples:',
+      '  #   node_memory_MemFree_bytes',
+      '  #   container_memory_usage_bytes',
+      '  #   up → 1 if target is reachable, 0 if down'
+    ]),
+    divider(),
+    section('Histogram — Distribution of Values'),
+    codeBlock([
+      '  # HISTOGRAM: samples observations in configurable buckets',
+      '  # Use for: latency, request size, response time distributions',
+      '',
+      '  # Exposed as multiple time series:',
+      '  http_request_duration_seconds_bucket{le="0.1"}  1200',
+      '  http_request_duration_seconds_bucket{le="0.5"}  3400',
+      '  http_request_duration_seconds_bucket{le="1.0"}  4200',
+      '  http_request_duration_seconds_bucket{le="+Inf"} 5000',
+      '  http_request_duration_seconds_count             5000',
+      '  http_request_duration_seconds_sum              1250.7',
+      '',
+      '  # Common PromQL histogram queries:',
+      '  #   50th percentile (median):',
+      '  #   histogram_quantile(0.5, rate(http_request_duration_seconds_bucket[5m]))',
+      '',
+      '  #   99th percentile:',
+      '  #   histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))',
+      '',
+      '  #   Average latency:',
+      '  #   rate(http_request_duration_seconds_sum[5m]) /',
+      '  #   rate(http_request_duration_seconds_count[5m])'
+    ]),
+    divider(),
+    section('Summary — Pre-computed Quantiles'),
+    codeBlock([
+      '  # SUMMARY: similar to histogram but calculates quantiles client-side',
+      '  # Use: when you need exact quantiles (can\'t be aggregated)',
+      '',
+      '  rpc_duration_seconds{quantile="0.5"}   0.032',
+      '  rpc_duration_seconds{quantile="0.9"}   0.120',
+      '  rpc_duration_seconds{quantile="0.99"}  0.450',
+      '  rpc_duration_seconds_count             5000',
+      '  rpc_duration_seconds_sum              1250.7',
+      '',
+      '  # Summary vs Histogram:',
+      '  #   Summary: pre-computed quantiles, CAN\'T be aggregated',
+      '  #   Histogram: raw buckets, CAN be aggregated across instances',
+      '',
+      '  # When to use which:',
+      '  #   Histogram — when you need to aggregate across instances',
+      '  #   Summary — when you need exact quantiles (no error)',
+      '  #   Most users: prefer Histogram for flexibility'
+    ]),
+    divider(),
+    section('Metric Naming Conventions'),
+    codeBlock([
+      '  # Naming rules:',
+      '  #   ■ Must match [a-zA-Z_:][a-zA-Z0-9_:]*',
+      '  #   ■ Should have a _total suffix for counters',
+      '  #   ■ Use _count, _sum, _bucket for histogram/summary',
+      '  #   ■ Use base unit in name',
+      '',
+      '  # Good:',
+      '  http_requests_total{method="GET"}',
+      '  node_memory_MemFree_bytes',
+      '  nginx_connections_active',
+      '  api_response_duration_seconds_bucket{le="0.5"}',
+      '',
+      '  # Bad:',
+      '  myapp.Latency (no dots allowed)',
+      '  total_requests (missing unit)',
+      '  activeConnections (use snake_case)',
+      '',
+      '  # Label naming:',
+      '  method="GET"     # good',
+      '  status_code="200" # good',
+      '  MyLabel="value"  # bad (CamelCase)'
+    ]),
+    tldr('Four metric types: Counter (always up), Gauge (up/down), Histogram (distribution buckets, aggregatable), Summary (pre-computed quantiles). Use rate() for counters, gauge functions for gauges, histogram_quantile for percentiles.'),
+  ]
+};
+
+topics.promql = {
+  title: 'PromQL',
+  content: [
+    section('PromQL — Prometheus Query Language'),
+    ['PromQL is the language for querying time series data.', 'info'],
+    divider(),
+    section('Instant Vector Selectors'),
+    codeBlock([
+      '  # Return the latest value for each matching time series:',
+      '',
+      '  node_memory_MemFree_bytes',
+      '  # → {instance="server1", job="node"}  4294967296',
+      '  # → {instance="server2", job="node"}  3221225472',
+      '',
+      '  # Filter by label:',
+      '  node_memory_MemFree_bytes{instance="server1"}',
+      '  node_memory_MemFree_bytes{job="node"}',
+      '',
+      '  # Label matchers:',
+      '  node_memory_MemFree_bytes{instance=~"server.*"}   # regex match',
+      '  node_memory_MemFree_bytes{job!="node"}             # not equal',
+      '  node_memory_MemFree_bytes{job!~"dev.*"}            # regex not match',
+      '',
+      '  # Multiple matchers (AND):',
+      '  node_memory_MemFree_bytes{job="node", instance=~"web.*"}'
+    ]),
+    divider(),
+    section('Range Vector Selectors'),
+    codeBlock([
+      '  # Return a range of values over a time window:',
+      '  # Append [duration] to the selector',
+      '',
+      '  node_memory_MemFree_bytes[5m]',
+      '  # → Returns all samples in the last 5 minutes',
+      '  # Use with rate(), increase(), avg_over_time(), etc.',
+      '',
+      '  # Duration formats:',
+      '  #   [5m]   — 5 minutes',
+      '  #   [1h]   — 1 hour',
+      '  #   [30s]  — 30 seconds',
+      '  #   [1d]   — 1 day (requires enough retention)',
+      '',
+      '  # Common range vector functions:',
+      '  rate(node_cpu_seconds_total[5m])        # per-second average',
+      '  increase(http_requests_total[1h])       # total increase',
+      '  avg_over_time(node_load1[30m])          # average',
+      '  max_over_time(node_memory_MemFree[1h])  # maximum',
+      '  min_over_time(node_memory_MemFree[1h])  # minimum',
+      '  quantile_over_time(0.95, http_latency[1h]) # percentile'
+    ]),
+    divider(),
+    section('Operators'),
+    codeBlock([
+      '  # Arithmetic:',
+      '  node_memory_MemFree_bytes / 1024 / 1024    # MB',
+      '  node_memory_MemFree_bytes / node_memory_MemTotal_bytes * 100  # % free',
+      '  rate(node_cpu_seconds_total[5m]) * 100     # CPU percentage',
+      '',
+      '  # Comparison (filtering):',
+      '  node_memory_MemFree_bytes < 1073741824    # less than 1GB free',
+      '  up == 0                                    # down targets',
+      '  http_requests_total > 1000                 # high request count',
+      '',
+      '  # Logical/set:',
+      '  node_memory_MemFree_bytes and {job="node"} # intersection',
+      '  node_memory_MemFree_bytes or {instance="web1"} # union',
+      '  node_memory_MemFree_bytes unless {instance="web1"} # subtraction',
+      '',
+      '  # Vector matching (join):',
+      '  # "on" matches by label, "group_left/right" for cardinality',
+      '  node_memory_MemFree_bytes',
+      '    / on(instance) group_left()',
+      '  node_memory_MemTotal_bytes * 100'
+    ]),
+    divider(),
+    section('Aggregation Operators'),
+    codeBlock([
+      '  # Aggregate across dimensions:',
+      '',
+      '  sum(rate(http_requests_total[5m]))           # total requests/sec',
+      '  avg(rate(http_requests_total[5m]))           # average per instance',
+      '  min(rate(http_requests_total[5m]))           # minimum',
+      '  max(rate(http_requests_total[5m]))           # maximum',
+      '  count(rate(http_requests_total[5m]))         # number of series',
+      '  stddev(rate(http_requests_total[5m]))        # standard deviation',
+      '  stdvar(rate(http_requests_total[5m]))        # variance',
+      '',
+      '  # Group by specific labels:',
+      '  sum by (method) (rate(http_requests_total[5m]))',
+      '  # → {method="GET"}     45.2',
+      '  # → {method="POST"}    12.7',
+      '',
+      '  # Without (remove labels):',
+      '  sum without (instance) (rate(http_requests_total[5m]))',
+      '  # → Aggregates across instances, keeps other labels',
+      '',
+      '  # Topk / Bottomk:',
+      '  topk(5, rate(http_requests_total[5m]))       # top 5 by rate',
+      '  bottomk(3, node_memory_MemFree_bytes)       # 3 lowest memory'
+    ]),
+    divider(),
+    section('Common Queries — Cheat Sheet'),
+    codeBlock([
+      '  # Target health:',
+      '  up                                    # 1 = up, 0 = down',
+      '  up == 0                               # only down targets',
+      '  count(up == 0)                        # count of down targets',
+      '',
+      '  # CPU:',
+      '  100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)',
+      '  # → CPU usage % per instance',
+      '',
+      '  # Memory:',
+      '  (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100',
+      '  # → Memory usage %',
+      '',
+      '  # Disk:',
+      '  node_filesystem_avail_bytes{mountpoint="/"} /',
+      '  node_filesystem_size_bytes{mountpoint="/"} * 100',
+      '  # → Disk free % on root',
+      '',
+      '  # Network:',
+      '  rate(node_network_receive_bytes_total[5m])',
+      '  # → Network receive throughput',
+      '',
+      '  # Application:',
+      '  rate(http_requests_total{status=~"5.."}[5m])',
+      '  # → Error rate (5xx)',
+      '',
+      '  # Kubernetes:',
+      '  sum by (pod) (rate(container_cpu_usage_seconds_total[5m]))',
+      '  # → CPU by pod'
+    ]),
+    tldr('PromQL is a functional query language with instant/range vectors, arithmetic/comparison operators, aggregation (sum/avg/topk), and powerful functions (rate, increase, histogram_quantile). Use the built-in UI or Grafana for visualization.'),
+  ]
+};
+
+topics.exporters = {
+  title: 'Exporters',
+  content: [
+    section('Exporters — Bridging the Gap'),
+    ['Exporters expose metrics from systems that don\'t natively speak Prometheus.', 'info'],
+    divider(),
+    section('Node Exporter — System Metrics'),
+    codeBlock([
+      '  # Download and run:',
+      '  $ wget https://github.com/prometheus/node_exporter/releases/latest/\\',
+      '    download/node_exporter-*.linux-amd64.tar.gz',
+      '  $ tar xvf node_exporter-*.tar.gz',
+      '  $ ./node_exporter',
+      '',
+      '  # Default port: 9100',
+      '  # Test: curl http://localhost:9100/metrics | head',
+      '',
+      '  # Prometheus config:',
+      '  scrape_configs:',
+      '    - job_name: "node"',
+      '      static_configs:',
+      '        - targets:',
+      '            - "server1:9100"',
+      '            - "server2:9100"',
+      '',
+      '  # Key metrics exposed:',
+      '  #   node_cpu_seconds_total          # CPU time by mode',
+      '  #   node_memory_MemTotal_bytes      # Total RAM',
+      '  #   node_memory_MemFree_bytes       # Free RAM',
+      '  #   node_disk_io_time_seconds_total # Disk I/O',
+      '  #   node_filesystem_avail_bytes     # Disk free',
+      '  #   node_network_receive_bytes_total # Network RX',
+      '  #   node_load1 / node_load5 / node_load15  # Load avg',
+      '  #   node_time_seconds              # System time'
+    ]),
+    divider(),
+    section('Application Exporters'),
+    codeBlock([
+      '  # Blackbox Exporter — probing endpoints (HTTP/HTTPS/TCP/ICMP)',
+      '  # Useful for: external health checks, SSL cert expiry',
+      '  $ ./blackbox_exporter --config.file=blackbox.yml',
+      '  # Port: 9115',
+      '',
+      '  # MySQL Exporter — MySQL/MariaDB metrics:',
+      '  $ ./mysqld_exporter --config.my-cnf=~/.my.cnf',
+      '  # Port: 9104',
+      '  # Metrics: queries, connections, replication lag, InnoDB status',
+      '',
+      '  # PostgreSQL Exporter:',
+      '  $ ./postgres_exporter --datasource="postgresql://user:pass@localhost?sslmode=disable"',
+      '  # Port: 9187',
+      '',
+      '  # Nginx Exporter — Nginx metrics via stub_status:',
+      '  $ ./nginx_exporter --nginx.scrape_uri=http://localhost/nginx_status',
+      '  # Port: 9113',
+      '  # Metrics: active connections, accepted, handled, requests',
+      '',
+      '  # Redis Exporter:',
+      '  $ ./redis_exporter --redis.addr=redis://localhost:6379',
+      '  # Port: 9121',
+      '',
+      '  # JMX Exporter — JVM-based apps (Kafka, Cassandra, etc.)',
+      '  # Java agent that exposes JMX MBeans as Prometheus metrics',
+      '  $ java -javaagent:jmx_prometheus_javaagent.jar=8080:config.yml -jar app.jar'
+    ]),
+    divider(),
+    section('Infrastructure Exporters'),
+    codeBlock([
+      '  # cAdvisor — container metrics (CPU, memory, network, disk)',
+      '  $ docker run -d --name=cadvisor \\',
+      '    -v /:/rootfs:ro -v /var/run:/var/run:ro \\',
+      '    -v /sys:/sys:ro -v /var/lib/docker:/var/lib/docker:ro \\',
+      '    -p 8080:8080 gcr.io/cadvisor/cadvisor',
+      '',
+      '  # SNMP Exporter — network devices (switches, routers, firewalls)',
+      '  # Uses SNMP to collect metrics from any SNMP-enabled device',
+      '  $ ./snmp_exporter --config.file=snmp.yml',
+      '',
+      '  # Docker Daemon metrics (built-in):',
+      '  # Edit /etc/docker/daemon.json:',
+      '  { "metrics-addr": "0.0.0.0:9323", "experimental": true }',
+      '',
+      '  # Prometheus config for Docker:',
+      '  scrape_configs:',
+      '    - job_name: "docker"',
+      '      static_configs:',
+      '        - targets: ["localhost:9323"]'
+    ]),
+    divider(),
+    section('Writing a Custom Exporter'),
+    codeBlock([
+      '  # Python example using prometheus_client:',
+      '',
+      '  from prometheus_client import start_http_server, Gauge',
+      '  import random, time',
+      '',
+      '  # Define metrics',
+      '  temperature = Gauge("sensor_temperature_celsius",',
+      '                       "Current temperature", ["sensor_id"])',
+      '  humidity = Gauge("sensor_humidity_percent",',
+      '                   "Current humidity", ["sensor_id"])',
+      '',
+      '  if __name__ == "__main__":',
+      '    start_http_server(8000)  # /metrics endpoint here',
+      '    while True:',
+      '      temperature.labels(sensor_id="s1").set(random.uniform(20, 30))',
+      '      humidity.labels(sensor_id="s1").set(random.uniform(40, 60))',
+      '      time.sleep(5)',
+      '',
+      '  # Run it, then curl localhost:8000/metrics',
+      '  # Add to prometheus.yml as target localhost:8000'
+    ]),
+    tldr('Exporters bridge the gap between Prometheus and non-native systems. Node Exporter for OS metrics, dedicated exporters for databases/services, blackbox for probing, and prometheus_client library for custom apps.'),
+  ]
+};
+
+topics.config = {
+  title: 'Configuration',
+  content: [
+    section('Prometheus Configuration'),
+    ['One YAML file to rule them all — prometheus.yml.', 'info'],
+    divider(),
+    section('Global Configuration'),
+    codeBlock([
+      '  # prometheus.yml',
+      '  global:',
+      '    scrape_interval: 15s       # How often to scrape targets',
+      '    scrape_timeout: 10s         # Max time for a scrape',
+      '    evaluation_interval: 15s    # How often to evaluate rules',
+      '',
+      '    # External labels (added to every time series):',
+      '    external_labels:',
+      '      cluster: "prod-us-east"',
+      '      region: "us-east-1"',
+      '      env: "production"',
+      '',
+      '  # Rule files:',
+      '  rule_files:',
+      '    - "alerting_rules.yml"',
+      '    - "recording_rules.yml"',
+      '',
+      '  # Scrape configs (next section):',
+      '  scrape_configs:',
+      '    - job_name: "prometheus"',
+      '      static_configs:',
+      '        - targets: ["localhost:9090"]'
+    ]),
+    divider(),
+    section('Scrape Configuration'),
+    codeBlock([
+      '  scrape_configs:',
+      '    - job_name: "node"',
+      '      scrape_interval: 30s       # Override global',
+      '      scrape_timeout: 5s',
+      '      metrics_path: /metrics',
+      '      scheme: http',
+      '      static_configs:',
+      '        - targets:',
+      '            - "web1:9100"',
+      '            - "web2:9100"',
+      '            - "db1:9100"',
+      '          labels:',
+      '            team: "infra"',
+      '        - targets: ["monitor:9100"]',
+      '          labels:',
+      '            team: "observability"',
+      '',
+      '      # Relabel configs (powerful label manipulation):',
+      '      relabel_configs:',
+      '        - source_labels: [__address__]',
+      '          target_label: instance',
+      '        - source_labels: [__meta_ec2_tag_Name]',
+      '          target_label: hostname'
+    ]),
+    divider(),
+    section('Service Discovery'),
+    codeBlock([
+      '  # Instead of static targets, Prometheus can discover targets:',
+      '',
+      '  # AWS EC2 Service Discovery:',
+      '  - job_name: "ec2"',
+      '    ec2_sd_configs:',
+      '      - region: us-east-1',
+      '        access_key: AKIA...',
+      '        secret_key: ...',
+      '        port: 9100',
+      '    relabel_configs:',
+      '      - source_labels: [__meta_ec2_tag_Name]',
+      '        target_label: instance',
+      '      - source_labels: [__meta_ec2_tag_Environment]',
+      '        target_label: env',
+      '',
+      '  # Kubernetes Service Discovery:',
+      '  - job_name: "kubernetes-pods"',
+      '    kubernetes_sd_configs:',
+      '      - role: pod',
+      '    relabel_configs:',
+      '      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]',
+      '        action: keep',
+      '        regex: true',
+      '',
+      '  # Other SD mechanisms:',
+      '  #   file_sd_configs   — JSON/YAML file (useful with config management)',
+      '  #   consul_sd_configs — Consul service registry',
+      '  #   dns_sd_configs    — DNS SRV records',
+      '  #   azure_sd_configs  — Azure VMs',
+      '  #   gce_sd_configs    — GCP instances',
+      '  #   openstack_sd_configs — OpenStack',
+      '  #   docker_sd_configs — Docker containers'
+    ]),
+    divider(),
+    section('Relabeling — The Power Tool'),
+    codeBlock([
+      '  # Relabeling modifies labels before ingestion:',
+      '',
+      '  relabel_configs:',
+      '    # Keep only targets with specific label:',
+      '    - source_labels: [__meta_ec2_tag_monitored]',
+      '      action: keep',
+      '      regex: true',
+      '',
+      '    # Drop targets with specific label:',
+      '    - source_labels: [__meta_ec2_tag_env]',
+      '      action: drop',
+      '      regex: dev|test',
+      '',
+      '    # Replace label value:',
+      '    - source_labels: [__meta_ec2_tag_Name]',
+      '      regex: "prod-(.*)"',
+      '      target_label: environment',
+      '      replacement: "${1}"',
+      '      action: replace',
+      '',
+      '    # Create a new label from existing ones:',
+      '    - source_labels: [__meta_ec2_availability_zone]',
+      '      regex: "(us-east-1[a-z])"',
+      '      target_label: az',
+      '      replacement: "${1}"',
+      '',
+      '    # Remove labels:',
+      '    - regex: "temp_.*"',
+      '      action: labeldrop',
+      '',
+      '  # Meta labels (from SD) start with __',
+      '  # They are removed after relabeling unless mapped'
+    ]),
+    divider(),
+    section('Honor Labels'),
+    codeBlock([
+      '  # What if the scraped target has a label named "job" or "instance"?',
+      '',
+      '  - job_name: "myapp"',
+      '    # honor_labels controls conflict resolution:',
+      '    honor_labels: false  # DEFAULT: target labels are renamed',
+      '',
+      '    # When false (default):',
+      '    #   Target\'s "job" label → "exported_job"',
+      '    #   Prometheus\'s "job" label stays as configured',
+      '',
+      '    # When true:',
+      '    #   Target\'s labels override Prometheus\'s',
+      '    #   Useful when target exposes correct labels already',
+      '',
+      '    # When you want the target\'s labels: set honor_labels: true',
+      '    # When you want to enforce your own: set honor_labels: false'
+    ]),
+    tldr('prometheus.yml controls global settings, scrape configs, rules, and service discovery. Relabeling is the power tool for label manipulation. Service discovery (K8s, EC2, Consul) replaces static target lists at scale.'),
+  ]
+};
+
+topics.alerting = {
+  title: 'Alerting',
+  content: [
+    section('Alerting with Prometheus'),
+    ['Alerts turn metrics into notifications. Prometheus evaluates rules, Alertmanager handles routing.', 'info'],
+    divider(),
+    section('Alerting Rules'),
+    codeBlock([
+      '  # alerting_rules.yml',
+      '  groups:',
+      '    - name: infrastructure',
+      '      interval: 30s',
+      '      rules:',
+      '        - alert: InstanceDown',
+      '          expr: up == 0',
+      '          for: 5m                   # Must be down for 5 min',
+      '          labels:',
+      '            severity: critical',
+      '            team: infra',
+      '          annotations:',
+      '            summary: "Instance {{ $labels.instance }} is down"',
+      '            description: "{{ $labels.instance }} of job {{ $labels.job }}',
+      '              has been down for more than 5 minutes."',
+      '',
+      '        - alert: HighMemoryUsage',
+      '          expr: >',
+      '            (1 - node_memory_MemAvailable_bytes',
+      '            / node_memory_MemTotal_bytes) * 100 > 90',
+      '          for: 10m',
+      '          labels:',
+      '            severity: warning',
+      '          annotations:',
+      '            summary: "Memory usage > 90% on {{ $labels.instance }}"',
+      '            description: "{{ $value | humanizePercentage }} memory used"'
+    ]),
+    divider(),
+    section('Alertmanager Configuration'),
+    codeBlock([
+      '  # alertmanager.yml',
+      '  route:',
+      '    receiver: "team-infra-email"',
+      '    group_by: ["alertname", "cluster"]',
+      '    group_wait: 30s',
+      '    group_interval: 5m',
+      '    repeat_interval: 4h',
+      '',
+      '    routes:',
+      '      - match:',
+      '          severity: critical',
+      '        receiver: "pagerduty-critical"',
+      '        repeat_interval: 30m',
+      '',
+      '      - match_re:',
+      '          team: "web|api"',
+      '        receiver: "slack-web-team"',
+      '',
+      '  receivers:',
+      '    - name: "team-infra-email"',
+      '      email_configs:',
+      '        - to: "infra@company.com"',
+      '          from: "alertmanager@company.com"',
+      '          smarthost: "smtp.company.com:587"',
+      '',
+      '    - name: "pagerduty-critical"',
+      '      pagerduty_configs:',
+      '        - routing_key: "YOUR_PD_KEY"',
+      '          severity: critical',
+      '',
+      '    - name: "slack-web-team"',
+      '      slack_configs:',
+      '        - api_url: "https://hooks.slack.com/services/T..."',
+      '          channel: "#alerts-web"',
+      '          title: "{{ .GroupLabels.alertname }}"',
+      '          text: "{{ .CommonAnnotations.description }}"'
+    ]),
+    divider(),
+    section('Alert States & Lifecycle'),
+    diagramBlock([
+      '  ALERT LIFECYCLE:',
+      '',
+      '  expr == true ──→ PENDING ──for:5m──→ FIRING ──resolved──→ RESOLVED',
+      '                      │                  │                    │',
+      '                      │                  │                    │',
+      '                  No notification    Send to              Send resolved',
+      '                  yet               Alertmanager         notification',
+      '',
+      '',
+      '  ALERTMANAGER PIPELINE:',
+      '',
+      '  FIRING alert → inhibit → silence → route → group → send',
+      '                    │          │        │       │',
+      '                    ▼          ▼        ▼       ▼',
+      '              Suppress if  Muted by   Match    Batch',
+      '              higher sev-  config     receiver similar',
+      '              erity alert            tree     alerts',
+      '              is firing'
+    ]),
+    divider(),
+    section('Inhibition & Silences'),
+    codeBlock([
+      '  # Inhibition — suppress low-severity when high-severity fires',
+      '  inhibit_rules:',
+      '    - source_match:',
+      '        severity: critical',
+      '      target_match:',
+      '        severity: warning',
+      '      equal: ["alertname", "cluster"]',
+      '      # If InstanceDown (critical) is firing,',
+      '      # suppress all warning alerts for same instance',
+      '',
+      '  # Silences — temporarily mute known issues',
+      '  # Created via Alertmanager UI or API:',
+      '  # POST /api/v2/silences',
+      '  # {',
+      '  #   "matchers": [',
+      '  #     {"name": "instance", "value": "web1.*", "isRegex": true}',
+      '  #   ],',
+      '  #   "startsAt": "2024-01-01T00:00:00Z",',
+      '  #   "endsAt": "2024-01-02T00:00:00Z",',
+      '  #   "comment": "Scheduled maintenance"',
+      '  # }'
+    ]),
+    divider(),
+    section('Alerting Best Practices'),
+    codeBlock([
+      '  # Golden Rules of Alerting:',
+      '',
+      '  # 1. Alert on SYMPTOMS, not causes',
+      '  # GOOD: "Latency > 500ms for 5 minutes"',
+      '  # BAD:  "CPU > 90%" (CPU could be fine!)',
+      '',
+      '  # 2. Every alert must have a RUNBOOK',
+      '  # Add runbook_url in annotations:',
+      '  annotations:',
+      '    runbook_url: "https://wiki/runbooks/instance-down.md"',
+      '',
+      '  # 3. Use "for:" to avoid flapping:',
+      '  # for: 5m → Only fire if condition persists 5 minutes',
+      '',
+      '  # 4. Page on fire, notify on smoke:',
+      '  #   critical → PagerDuty (page)',
+      '  #   warning  → Slack (chat)',
+      '  #   info     → Dashboard',
+      '',
+      '  # 5. Test your alerts:',
+      '  # Run promtool to check rule syntax:',
+      '  $ promtool check rules alerting_rules.yml',
+      '',
+      '  # Unit test alert rules:',
+      '  $ promtool test rules test.yml',
+      '',
+      '  # 6. Use "sum by" to avoid alert storms:',
+      '  # Bad: one alert per CPU core → 64 alerts',
+      '  # Good: aggregate then alert:',
+      '  avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) < 0.1'
+    ]),
+    tldr('Alerting: rules evaluate expressions in Prometheus, Alertmanager handles routing/grouping/inhibition. Alert on symptoms, add runbooks, use "for:" to reduce flapping. Test rules with promtool.'),
+  ]
+};
+
+topics.storage = {
+  title: 'Storage',
+  content: [
+    section('Prometheus Storage — The TSDB'),
+    ['Prometheus stores all data in its own on-disk Time Series Database (TSDB).', 'info'],
+    divider(),
+    section('TSDB Architecture'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────────┐',
+      '  │                  PROMETHEUS TSDB                  │',
+      '  ├──────────────────────────────────────────────────┤',
+      '  │  ┌──────────────────────┐  ┌────────────────────┐ │',
+      '  │  │   In-Memory (WAL)    │  │   On-Disk Blocks   │ │',
+      '  │  │   Recent data        │  │   Compressed data  │ │',
+      '  │  │   Not yet persisted  │  │   Immutable        │ │',
+      '  │  │   Lost on crash      │  │   (after compaction)│ │',
+      '  │  └──────┬───────────────┘  └──────┬─────────────┘ │',
+      '  │         │                          │               │',
+      '  │         ▼                          ▼               │',
+      '  │  ┌──────────────────────────────────────────────┐  │',
+      '  │  │           WAL (Write-Ahead Log)              │  │',
+      '  │  │  Crash recovery. Replays on restart.         │  │',
+      '  │  └──────────────────────────────────────────────┘  │',
+      '  └──────────────────────────────────────────────────┘',
+      '',
+      '  BLOCK STRUCTURE (each 2-hour block):',
+      '',
+      '  ┌──────────────────────────────────────────┐',
+      '  │  01E9XYZ.../                              │',
+      '  │  ├── chunks/                              │',
+      '  │  │   └── 000001  (actual sample data)     │',
+      '  │  ├── index     (inverted index for labels) │',
+      '  │  ├── meta.json (block metadata)           │',
+      '  │  └── tombstones (deletion markers)        │',
+      '  └──────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Retention & Compaction'),
+    codeBlock([
+      '  # Retention configuration (CLI flags):',
+      '',
+      '  $ ./prometheus \\',
+      '    --storage.tsdb.retention.time=15d \\',
+      '    --storage.tsdb.retention.size=50GB \\',
+      '    --storage.tsdb.path=/data/prometheus \\',
+      '    --storage.tsdb.wal-compression',
+      '',
+      '  # retention.time: delete blocks older than 15 days',
+      '  #   Default: 15d. Common: 7d, 30d, 90d',
+      '  #   Use 0 to disable time-based retention',
+      '',
+      '  # retention.size: delete blocks when total > 50GB',
+      '  #   Older blocks deleted first (FIFO)',
+      '  #   Use 0 to disable size-based retention',
+      '',
+      '  # Compaction merges smaller blocks into larger ones:',
+      '  #   2h blocks → compacted → larger blocks',
+      '  #   Reduces memory usage and query time',
+      '  #   Improves compression ratio',
+      '',
+      '  # Check TSDB stats:',
+      '  prometheus_tsdb_head_blocks        # Current blocks',
+      '  prometheus_tsdb_size_retentions_total # Blocks deleted',
+      '  prometheus_tsdb_storage_blocks_bytes # Total size'
+    ]),
+    divider(),
+    section('Storage Considerations'),
+    codeBlock([
+      '  # Storage calculation (estimate):',
+      '  #   1 sample ≈ 1-2 bytes (after compression)',
+      '  #   1M time series × 1 sample/min × 15 days',
+      '  #   ≈ 1M × 1440 × 15 × 2 bytes ≈ 43 GB',
+      '',
+      '  # Reduce storage:',
+      '  #   ■ Fewer labels (each unique label combo = new series)',
+      '  #   ■ Higher scrape interval (30s vs 15s)',
+      '  #   ■ Shorter retention',
+      '  #   ■ Drop unnecessary metrics via relabeling:',
+      '  relabel_configs:',
+      '    - source_labels: [__name__]',
+      '      action: drop',
+      '      regex: "go_.*|prometheus_.*"',
+      '',
+      '  # Read-only mode (no local storage, query remote):',
+      '  # Use Thanos or Cortex for long-term storage',
+      '',
+      '  # Backup: snapshots via API',
+      '  $ curl -XPOST http://localhost:9090/api/v1/admin/tsdb/snapshot',
+      '  # → {"status":"success","data":{"name":"20240101T120000Z-abc123"}}'
+    ]),
+    divider(),
+    section('Querier Performance'),
+    codeBlock([
+      '  # How Prometheus answers queries:',
+      '',
+      '  1. Parse PromQL expression',
+      '  2. Find matching time series via inverted index (O(1))',
+      '  3. Load relevant blocks from disk',
+      '  4. Decompress chunk data',
+      '  5. Apply functions/operators',
+      '  6. Return result',
+      '',
+      '  # Optimization tips:',
+      '  #   ■ Use recording rules for expensive queries',
+      '  #   ■ Reuse queries across dashboards',
+      '  #   ■ Avoid high-cardinality labels (user_id, ip_address)',
+      '  #   ■ Limit query range via time picker',
+      '',
+      '  # Cardinality explosion — the #1 performance killer:',
+      '  # BAD: http_requests_total{user_id="..."}  # 1M unique users',
+      '  # GOOD: sum by (status) (http_requests_total)  # 10 series',
+      '',
+      '  # Check cardinality:',
+      '  count(count by (__name__) ({__name__=~".+"}))'
+    ]),
+    tldr('Prometheus TSDB stores 2-hour blocks with WAL for crash recovery. Retention (time/size-based) and compaction manage disk usage. Watch cardinality — too many unique label combos kills performance. Use Thanos/Cortex for long-term storage.'),
+  ]
+};
+
+topics.advanced = {
+  title: 'Advanced Prometheus',
+  content: [
+    section('Advanced Features'),
+    ['Scaling Prometheus beyond a single server.', 'info'],
+    divider(),
+    section('Recording Rules — Pre-compute Expensive Queries'),
+    codeBlock([
+      '  # recording_rules.yml',
+      '  groups:',
+      '    - name: kubernetes',
+      '      interval: 30s',
+      '      rules:',
+      '        - record: instance:node_cpu_usage:ratio',
+      '          expr: >',
+      '            1 - avg by (instance) (',
+      '              rate(node_cpu_seconds_total{mode="idle"}[5m])',
+      '            )',
+      '',
+      '        - record: instance:node_memory_usage:ratio',
+      '          expr: >',
+      '            1 - (',
+      '              node_memory_MemAvailable_bytes',
+      '              / node_memory_MemTotal_bytes',
+      '            )',
+      '',
+      '        - record: job:http_requests:rate5m',
+      '          expr: sum by (job) (rate(http_requests_total[5m]))',
+      '',
+      '  # Query them like regular metrics:',
+      '  # instance:node_cpu_usage:ratio',
+      '  # → Much faster than computing rate() on every dashboard load'
+    ]),
+    divider(),
+    section('Federation'),
+    codeBlock([
+      '  # Federation = Prometheus scraping another Prometheus',
+      '  # Use for: hierarchical monitoring, multi-cluster',
+      '',
+      '  # Global Prometheus scrapes from region/cell Prometheus servers:',
+      '',
+      '  # global-prometheus.yml',
+      '  scrape_configs:',
+      '    - job_name: "federate-us-east"',
+      '      scrape_interval: 60s',
+      '      honor_labels: true',
+      '      metrics_path: /federate',
+      '      params:',
+      '        match[]:',
+      '          - \'{__name__=~"job:.*"}\'',
+      '          - \'{__name__=~"node:.*"}\'',
+      '          - \'up\'',
+      '      static_configs:',
+      '        - targets: ["us-east-prometheus:9090"]',
+      '',
+      '    - job_name: "federate-us-west"',
+      '      params:',
+      '        match[]:',
+      '          - \'{__name__=~"job:.*"}\'',
+      '      static_configs:',
+      '        - targets: ["us-west-prometheus:9090"]',
+      '',
+      '  # Only federate aggregated metrics (recording rules)',
+      '  # NOT raw high-cardinality data',
+      '  # Federation is not a replacement for Thanos/Cortex'
+    ]),
+    divider(),
+    section('Remote Write & Remote Read'),
+    codeBlock([
+      '  # Remote Write — send data to long-term storage',
+      '  remote_write:',
+      '    - url: "https://thanos-receive.company.com/api/v1/receive"',
+      '      queue_config:',
+      '        max_samples_per_send: 500',
+      '        capacity: 10000',
+      '        max_backoff: 5s',
+      '        min_backoff: 30ms',
+      '      write_relabel_configs:',
+      '        - source_labels: [__name__]',
+      '          regex: "thanos_.*"',
+      '          action: drop',
+      '',
+      '  # Remote Read — query data from long-term storage',
+      '  remote_read:',
+      '    - url: "https://thanos-query.company.com/api/v1/read"',
+      '      read_recent: true',
+      '',
+      '  # Popular remote storage backends:',
+      '  #   Thanos — CNCF, most popular',
+      '  #   Cortex — CNCF, multi-tenant',
+      '  #   Mimir — Grafana Labs, Cortex fork',
+      '  #   VictoriaMetrics — fast, single binary',
+      '  #   InfluxDB — via adapter',
+      '  #   Google BigQuery — via adapter'
+    ]),
+    divider(),
+    section('Thanos — Unlimited Prometheus'),
+    diagramBlock([
+      '  ┌─────────────────────────────────────────────────────┐',
+      '  │                     THANOS                          │',
+      '  ├─────────────────────────────────────────────────────┤',
+      '  │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │',
+      '  │  │ Sidecar  │  │ Sidecar  │  │ Sidecar          │  │',
+      '  │  │ uploads  │  │ uploads  │  │ uploads to S3    │  │',
+      '  │  │ to S3    │  │ to S3    │  │ retention=forever │  │',
+      '  │  └────┬─────┘  └────┬─────┘  └───────┬──────────┘  │',
+      '  │       │              │                │             │',
+      '  │       ▼              ▼                ▼             │',
+      '  │  ┌───────────────────────────────────────────────┐  │',
+      '  │  │           Thanos Store Gateway                │  │',
+      '  │  │  (Reads from S3/GCS/Azure blob)               │  │',
+      '  │  └────────────────────┬──────────────────────────┘  │',
+      '  │                       │                             │',
+      '  │                       ▼                             │',
+      '  │  ┌───────────────────────────────────────────────┐  │',
+      '  │  │           Thanos Querier                      │  │',
+      '  │  │  (Single query endpoint, global view)          │  │',
+      '  │  └───────────────────────────────────────────────┘  │',
+      '  └─────────────────────────────────────────────────────┘',
+      '',
+      '  # Benefits: unlimited retention, global query view,',
+      '  # downsampling (auto-rollup for fast queries on old data)'
+    ]),
+    divider(),
+    section('Prometheus Operator (Kubernetes)'),
+    codeBlock([
+      '  # For Kubernetes users: Prometheus Operator manages everything',
+      '',
+      '  # Custom Resource Definitions (CRDs):',
+      '  #   Prometheus — Deploy and configure Prometheus instances',
+      '  #   ServiceMonitor — Define scrape targets by K8s labels',
+      '  #   PodMonitor — Scrape pods directly',
+      '  #   PrometheusRule — Alerting and recording rules',
+      '  #   Alertmanager — Deploy and configure Alertmanager',
+      '',
+      '  # Example ServiceMonitor:',
+      '  apiVersion: monitoring.coreos.com/v1',
+      '  kind: ServiceMonitor',
+      '  metadata:',
+      '    name: myapp',
+      '    namespace: monitoring',
+      '  spec:',
+      '    selector:',
+      '      matchLabels:',
+      '        app: myapp',
+      '    endpoints:',
+      '      - port: metrics',
+      '        interval: 15s',
+      '        path: /metrics',
+      '',
+      '  # Prometheus Operator auto-generates prometheus.yml',
+      '  # No manual config for K8s targets!'
+    ]),
+    tldr('Advanced Prometheus: recording rules pre-compute expensive queries, federation hierarchies aggregate across clusters, remote write sends to long-term storage (Thanos/Cortex), Prometheus Operator simplifies K8s monitoring.'),
+  ]
+};
+
+topics.bestpractices = {
+  title: 'Best Practices',
+  content: [
+    section('Production Best Practices'),
+    ['Patterns for running Prometheus at scale.', 'info'],
+    divider(),
+    section('Naming & Labeling'),
+    codeBlock([
+      '  # Metric naming:',
+      '  #   <namespace>_<subsystem>_<unit>[_total]',
+      '',
+      '  node_cpu_seconds_total        # ✓',
+      '  http_requests_total           # ✓',
+      '  api_response_duration_seconds # ✓',
+      '  MyApp_Counter                 # ✗ (CamelCase)',
+      '  total_requests                # ✗ (no namespace)',
+      '  some.latency                  # ✗ (dots)',
+      '',
+      '  # Label best practices:',
+      '  #   DO use: job, instance, method, path, status, environment',
+      '  #   DON\'T use: user_id, email, ip, session_id, request_id',
+      '',
+      '  # Cardinality warning signs:',
+      '  #   http_requests_total{user_id="..."}  # BAD: unbounded!',
+      '  #   http_requests_total{country="US"}   # OK: bounded (~200)',
+      '',
+      '  # Each unique label value combo = new time series',
+      '  # Prometheus can handle millions of series, but queries slow down'
+    ]),
+    divider(),
+    section('Instrumentation Patterns'),
+    codeBlock([
+      '  # DO: Use libraries for your language',
+      '  # prometheus_client (Python), prom-client (Node.js),',
+      '  # micrometer (Java), prometheus-ruby, rust-prometheus',
+      '',
+      '  # DO: Expose /metrics endpoint',
+      '  # DON\'T: Write custom exporters unless necessary',
+      '',
+      '  # DO: Use histogram for latency',
+      '  # DON\'T: Use summary (can\'t aggregate) — prefer histogram',
+      '',
+      '  # DO: Add application version info:',
+      '  # info{version="1.2.3", commit="abc123", go_version="1.21"} 1',
+      '  # This is a GAUGE with value 1 and version in labels',
+      '',
+      '  # DO: Use _total suffix for counters',
+      '  # DON\'T: Reset counters — let them accumulate',
+      '',
+      '  # DO: Use base units (seconds, bytes, ratio)',
+      '  # DON\'T: Use milliseconds or percentages in metric names',
+      '  # api_latency_seconds  ✓',
+      '  # api_latency_ms       ✗'
+    ]),
+    divider(),
+    section('Operational Best Practices'),
+    codeBlock([
+      '  # 1. Run Prometheus as a service (not Docker in production)',
+      '  # Use systemd, Kubernetes StatefulSet, or Nomad',
+      '',
+      '  # 2. Monitor Prometheus itself:',
+      '  #   prometheus_tsdb_head_blocks — TSDB health',
+      '  #   prometheus_target_scrapes_exceeded_sample_limit_total',
+      '  #   prometheus_rule_evaluation_duration_seconds',
+      '  #   prometheus_tsdb_wal_corruptions_total',
+      '',
+      '  # 3. Use persistent storage:',
+      '  #   EBS volume for on-prem, PVC in K8s, local SSD',
+      '  #   WAL on dedicated fast disk',
+      '',
+      '  # 4. Set resource limits:',
+      '  #   Prometheus is SINGLE-THREADED for queries',
+      '  #   CPU: 2-4 cores, Memory: 8-32GB (depends on series count)',
+      '',
+      '  # 5. Backup regularly:',
+      '  $ curl -XPOST http://localhost:9090/api/v1/admin/tsdb/snapshot',
+      '  # Then copy the snapshot directory to backup storage',
+      '',
+      '  # 6. Configure alerts for Prometheus itself:',
+      '  - alert: PrometheusScrapeFailures',
+      '    expr: rate(prometheus_target_scrapes_exceeded_sample_limit_total[5m]) > 0',
+      '    for: 5m',
+      '',
+      '  - alert: PrometheusHighMemoryUsage',
+      '    expr: >',
+      '      process_resident_memory_bytes / prometheus_tsdb_storage_blocks_bytes > 0.5',
+      '    for: 5m'
+    ]),
+    divider(),
+    section('Dashboard & Visualization'),
+    codeBlock([
+      '  # USE CASE → METRIC → QUERY',
+      '',
+      '  # System overview:',
+      '  #   Node Exporter + node_cpu/node_memory/node_disk',
+      '',
+      '  # Kubernetes:',
+      '  #   kube-state-metrics + cAdvisor + node_exporter',
+      '  #   + Prometheus Operator (recommended)',
+      '',
+      '  # Application:',
+      '  #   RED method: Rate, Errors, Duration',
+      '  #   rate(http_requests_total[5m])     # Rate',
+      '  #   rate(http_requests_total{status=~"5.."}[5m])  # Errors',
+      '  #   histogram_quantile(0.99, ...)     # Duration',
+      '',
+      '  # USE method (for infrastructure):',
+      '  #   Utilization, Saturation, Errors',
+      '  #   node_cpu_seconds_total           # Utilization',
+      '  #   node_load1 / node_cpu_count       # Saturation',
+      '  #   node_softnet_dropped_total        # Errors',
+      '',
+      '  # Four Golden Signals:',
+      '  #   Latency, Traffic, Errors, Saturation',
+      '',
+      '  # USE Grafana for dashboards (NOT Prometheus UI):',
+      '  #   Import community dashboards:',
+      '  #   grafana.com/grafana/dashboards',
+      '  #   Node Exporter: #1860',
+      '  #   Prometheus: #3662',
+      '  #   Kubernetes: #6417'
+    ]),
+    divider(),
+    section('Common Pitfalls'),
+    codeBlock([
+      '  # 1. High cardinality → out of memory',
+      '  # Symptoms: slow queries, OOM kills, high disk usage',
+      '  # Fix: remove high-cardinality labels, use recording rules',
+      '',
+      '  # 2. Too many targets → slow scrape cycle',
+      '  # Symptoms: scrape timeouts, samples limit exceeded',
+      '  # Fix: increase scrape_interval, split into multiple Prometheus',
+      '',
+      '  # 3. Not enough retention → missing data for trends',
+      '  # Fix: use Thanos/Cortex for long-term storage',
+      '',
+      '  # 4. Using summary instead of histogram',
+      '  # Problem: summaries can\'t be aggregated across instances',
+      '  # Fix: use histogram (buckets are aggregatable)',
+      '',
+      '  # 5. Alerting on every CPU spike',
+      '  # Fix: use "for:" to require sustained condition,',
+      '  # and aggregate before alerting'
+    ]),
+    tldr('Watch cardinality, prefer histograms over summaries, use base units, follow RED/USE methods for dashboards, monitor Prometheus itself, and use Thanos for long-term retention.'),
+  ]
+};
+
+topics.diagram = {
+  title: 'Prometheus Architecture',
+  content: [
+    section('Prometheus Architecture'),
+    ['Complete end-to-end view of Prometheus monitoring.', 'info'],
+    divider(),
+    diagramBlock([
+      '              ┌─────────────────────────────────────────────┐',
+      '              │          PROMETHEUS ECOSYSTEM               │',
+      '              └─────────────────────────────────────────────┘',
+      '',
+      '  ┌─────────────────────────────────────────────────────────────────────┐',
+      '  │                        SCRAPE TARGETS                               │',
+      '  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  │',
+      '  │  │ Node    │  │ App     │  │ DB      │  │ K8s Pod │  │Blackbox │  │',
+      '  │  │Exporter │  │ /metrics│  │Exporter │  │ cAdvisor│  │Exporter │  │',
+      '  │  │ :9100   │  │ :8080   │  │ :9104   │  │ :8080   │  │ :9115   │  │',
+      '  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  │',
+      '  │       │             │             │             │             │     │',
+      '  │       └─────────────┴─────────────┴─────────────┴─────────────┘     │',
+      '  │                             │ /metrics                              │',
+      '  └─────────────────────────────┼───────────────────────────────────────┘',
+      '                                │',
+      '                                ▼',
+      '  ┌─────────────────────────────────────────────────────────────────┐',
+      '  │                     PROMETHEUS SERVER                           │',
+      '  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐ │',
+      '  │  │ Retriever │  │ TSDB     │  │ PromQL   │  │ Alertmanager   │ │',
+      '  │  │ Pulls    │  │ Stores   │  │ Engine   │  │ Evaluates      │ │',
+      '  │  │ metrics  │  │ 2h blocks│  │ Queries  │  │ rules, sends   │ │',
+      '  │  └──────────┘  └────┬─────┘  └──────────┘  │ notifications  │ │',
+      '  │                     │                       └───────┬────────┘ │',
+      '  └─────────────────────┼───────────────────────────────┼──────────┘',
+      '                        │                               │',
+      '                        ▼                               ▼',
+      '  ┌─────────────────────────────┐       ┌────────────────────────────┐',
+      '  │      LONG-TERM STORAGE      │       │      NOTIFICATION CHANNELS │',
+      '  │  ┌─────────┐ ┌───────────┐  │       │  ┌──────┐ ┌──────┐        │',
+      '  │  │ Thanos  │ │ Cortex/   │  │       │  │Email │ │Slack │        │',
+      '  │  │ Sidecar │ │ Mimir     │  │       │  └──────┘ └──────┘        │',
+      '  │  │  → S3   │ │ → S3/GCS │  │       │  ┌──────┐ ┌──────┐        │',
+      '  │  └─────────┘ └───────────┘  │       │  │Pager │ │Webho │        │',
+      '  │  + unlimited retention      │       │  │Duty  │ │ok    │        │',
+      '  └─────────────────────────────┘       └────────────────────────────┘',
+      '',
+      '                        │',
+      '                        ▼',
+      '  ┌─────────────────────────────────────────────────────────────────┐',
+      '  │                      VISUALIZATION                              │',
+      '  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────────────┐  │',
+      '  │  │ Grafana  │  │ PromUI   │  │ Custom dashboards             │  │',
+      '  │  │ Rich     │  │ Built-in │  │ via API to Grafana/Grafana    │  │',
+      '  │  │ dashboards│  │ ad-hoc   │  │                              │  │',
+      '  │  │ :3000    │  │ :9090    │  │                              │  │',
+      '  │  └──────────┘  └──────────┘  └──────────────────────────────┘  │',
+      '  └─────────────────────────────────────────────────────────────────┘',
+    ]),
+    divider(),
+    section('Data Flow'),
+    diagramBlock([
+      '  FROM SCRAPE TO ALERT:',
+      '',
+      '  1. Scrape:  Prometheus → GET /metrics → Target',
+      '              Pulls all metric samples at /metrics endpoint',
+      '              │',
+      '              ▼',
+      '  2. Store:   Samples written to WAL (write-ahead log)',
+      '              WAL is flushed to 2-hour TSDB blocks',
+      '              Blocks are compressed and indexed',
+      '              │',
+      '              ▼',
+      '  3. Query:   PromQL expression parsed',
+      '              Inverted index finds matching series',
+      '              Blocks decompressed, samples read',
+      '              Functions/operators applied',
+      '              Result returned (instant or range)',
+      '              │',
+      '              ▼',
+      '  4. Alert:   Rule evaluation (every evaluation_interval)',
+      '              Expression matches → PENDING → FIRING',
+      '              Alertmanager receives firing alert',
+      '              Route → group → inhibit → notify',
+      '              │',
+      '              ▼',
+      '  5. Visualize: Grafana queries Prometheus datasource',
+      '               Panels render time series data',
+      '               Users see dashboards, set up alerting'
+    ]),
+    divider(),
+    section('Service Discovery'),
+    diagramBlock([
+      '  SERVICE DISCOVERY FLOW:',
+      '',
+      '  ┌──────────┐     ┌──────────┐     ┌──────────┐',
+      '  │ Consul   │     │ K8s API  │     │ AWS EC2  │',
+      '  │ Services │     │ Pods/    │     │ Instances│',
+      '  │          │     │ Services │     │          │',
+      '  └────┬─────┘     └────┬─────┘     └────┬─────┘',
+      '       │                │                │',
+      '       ▼                ▼                ▼',
+      '  ┌──────────────────────────────────────────┐',
+      '  │          Target Pool (discovered)          │',
+      '  │  ├─ web1:9100, web2:9100, db1:9100       │',
+      '  │  ├─ __meta_ec2_tag_Name="web1"           │',
+      '  │  └─ __meta_kubernetes_pod_label_app="api" │',
+      '  └──────────────────┬───────────────────────┘',
+      '                     │',
+      '                     ▼',
+      '  ┌──────────────────────────────────────────┐',
+      '  │          RELABELING                       │',
+      '  │  ┌──────────keep/drop──────────────┐     │',
+      '  │  │  action: keep                   │     │',
+      '  │  │  regex: "prod-.*"               │     │',
+      '  │  └─────────────────────────────────┘     │',
+      '  │  ┌──────────replace────────────────┐     │',
+      '  │  │  source_labels → target_label   │     │',
+      '  │  └─────────────────────────────────┘     │',
+      '  │  ┌──────────labelmap───────────────┐     │',
+      '  │  │  Copy meta labels to new labels │     │',
+      '  │  └─────────────────────────────────┘     │',
+      '  └──────────────────┬───────────────────────┘',
+      '                     │',
+      '                     ▼',
+      '  ┌──────────────────────────────────────────┐',
+      '  │            FINAL TARGET LIST              │',
+      '  │  ├─ web1:9100, job="node", env="prod"    │',
+      '  │  └─ web2:9100, job="node", env="prod"    │',
+      '  └──────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Key Integrations'),
+    diagramBlock([
+      '  ┌─────────────────────────────────────────────┐',
+      '  │         PROMETHEUS INTEGRATIONS              │',
+      '  ├─────────────────────────────────────────────┤',
+      '  │  Grafana     ─── Primary visualization      │',
+      '  │  Thanos      ─── Long-term, global query    │',
+      '  │  Cortex/Mimir ─ Multi-tenant, HA Prometheus │',
+      '  │  Alertmanager ─ Alert routing/grouping      │',
+      '  │  Prometheus   ─ Federation (hierarchical)    │',
+      '  │  Operator    ─── K8s-native lifecycle       │',
+      '  │  node_exporter ─ OS/hardware metrics        │',
+      '  │  blackbox      ── External endpoint probing │',
+      '  │  Pushgateway   ── Batch job metrics         │',
+      '  └─────────────────────────────────────────────┘',
+      '',
+      '  # Pushgateway use cases:',
+      '  #   ■ Batch jobs (CronJobs, CI pipelines)',
+      '  #   ■ Short-lived jobs that exit before next scrape',
+      '  #   ■ Services behind firewalls (limited cases)',
+      '  #   ■ Avoid for long-running services (use pull)'
+    ]),
+    tldr('Prometheus ecosystem: scrapes targets via pull model, stores in TSDB, queries via PromQL, alerts via Alertmanager, visualizes in Grafana. Scale with Thanos/Cortex, manage K8s with Prometheus Operator.'),
+  ]
+};
+
+function bootSequence() {
+  const bootLines = [
+    ['[ OK ] Initializing Prometheus TSDB engine...', 'success'],
+    ['[ OK ] Loading rules: 6 recording rules, 12 alerting rules', 'success'],
+    ['[ OK ] Scrape discovery: 24 active targets', 'success'],
+    ['[ INFO ] Prometheus Interactive Lab ready', 'info'],
+    ['Type "help" to see available commands.\n', 'dim'],
+  ];
+  bootLines.forEach((l, i) => {
+    setTimeout(() => w(l[0], l[1]), (i + 1) * 200);
+  });
+  setTimeout(() => {
+    w('Try: <span style="color:var(--cyan)">basics</span> \u2192 <span style="color:var(--cyan)">metrics</span> \u2192 <span style="color:var(--cyan)">promql</span> \u2192 <span style="color:var(--cyan)">alerting</span>', 'info');
+  }, (bootLines.length + 1) * 200);
+}
+
+bootSequence();
+
+function run(cmd) {
+  const topic = topics[cmd];
+  if (!topic) {
+    w('Unknown command: ' + cmd, 'error');
+    w('Type "help" for available commands.', 'info');
+    return;
+  }
+  w('$ ' + cmd, 'prompt-line');
+  writeLines(topic.content);
+}
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const cmd = input.value.trim().toLowerCase();
+    if (cmd) {
+      input.value = '';
+      run(cmd);
+    }
+  }
+});
+</script>
+</body>
+</html>

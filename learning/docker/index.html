@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docker Interactive Lab</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Cascadia Code','Fira Code','Courier New',monospace}
+:root{--bg:#0a0e14;--surface:#0f1620;--border:#1a2332;--text:#b3b1ad;--green:#b8cc52;--cyan:#95e6cb;--yellow:#f9c440;--red:#ff6c6c;--dim:#525a66;--prompt:#f9c440;--highlight:rgba(184,204,82,0.12)}
+body{background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.header-title{color:var(--green);font-size:13px;font-weight:bold}
+.header-title span{color:var(--dim)}
+.header-nav{display:flex;gap:16px;font-size:12px}
+.header-nav a{color:var(--dim);text-decoration:none}
+.header-nav a:hover{color:var(--cyan)}
+#terminal{flex:1;overflow-y:auto;padding:12px 16px 0;scroll-behavior:smooth}
+#terminal::-webkit-scrollbar{width:6px}
+#terminal::-webkit-scrollbar-track{background:var(--surface)}
+#terminal::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.line{margin-bottom:2px;line-height:1.5;white-space:pre-wrap;word-break:break-word;animation:fadeIn 0.15s ease-out}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.line.prompt-line{color:var(--prompt);font-weight:bold}
+.line.error{color:var(--red)}
+.line.info{color:var(--dim)}
+.line.success{color:var(--green)}
+.line.cyan{color:var(--cyan)}
+.line.yellow{color:var(--yellow)}
+.line.dim{color:var(--dim)}
+.line.bold{font-weight:bold}
+.line.lg{font-size:1.1em;margin:6px 0}
+.line.section{color:var(--green);font-weight:bold;font-size:1.1em;margin:10px 0 4px;letter-spacing:0.5px}
+.line.subsection{color:var(--cyan);margin:6px 0 2px}
+.line.diagram{color:var(--dim);font-size:0.85em;line-height:1.2;margin:4px 0}
+.line.code{color:var(--yellow);font-size:0.85em;padding:6px 12px;margin:4px 0;border-left:2px solid var(--border);background:var(--highlight);border-radius:0 4px 4px 0}
+.line.divider{color:var(--border);margin:6px 0}
+.line.tldr{color:var(--yellow);font-style:italic;margin:8px 0 4px;padding:6px 12px;border:1px dashed var(--border);border-radius:4px}
+.line.highlight{background:var(--highlight);padding:4px 8px;border-radius:4px;margin:4px 0}
+@media(max-width:600px){.header-nav{display:none}#terminal{padding:8px 10px}.line{font-size:0.9em}}
+</style>
+</head>
+<body>
+
+<div class="header">
+<div class="header-title">Docker Interactive Lab <span>— explore, experiment, understand</span></div>
+<div class="header-nav"><a href="https://veerakumar.com">veerakumar.com</a><a href="https://github.com/theveerakumar">github</a></div>
+</div>
+
+<div id="terminal"></div>
+
+<div class="suggestions" id="suggestions">
+<span onclick="run('help')">help</span>
+<span onclick="run('basics')">basics</span>
+<span onclick="run('images')">images</span>
+<span onclick="run('containers')">containers</span>
+<span onclick="run('dockerfile')">dockerfile</span>
+<span onclick="run('compose')">compose</span>
+<span onclick="run('networking')">networking</span>
+<span onclick="run('storage')">storage</span>
+<span onclick="run('security')">security</span>
+<span onclick="run('diagram')">diagram</span>
+</div>
+
+<div class="input-area">
+<span class="prompt">$</span>
+<input type="text" id="cmd" placeholder="type a command or try help" autofocus spellcheck="false" autocomplete="off">
+</div>
+
+<script>
+const term = document.getElementById('terminal');
+const input = document.getElementById('cmd');
+
+function scrollBottom() { setTimeout(() => { term.scrollTop = term.scrollHeight; }, 20); }
+
+function w(text, cls = '') {
+  const d = document.createElement('div');
+  d.className = 'line' + (cls ? ' ' + cls : '');
+  d.innerHTML = text;
+  term.appendChild(d);
+  scrollBottom();
+}
+
+function writeLines(lines) {
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      if (typeof l === 'string') w(l);
+      else w(l[0], l[1] || '');
+      if (i === lines.length - 1) scrollBottom();
+    }, i * 25);
+  });
+}
+
+function divider() { return ['─'.repeat(60), 'divider']; }
+function section(title) { return ['<span style="color:var(--green)">■</span> ' + title, 'section']; }
+function subsection(title) { return [title, 'subsection']; }
+function codeBlock(lines) { return [lines.map(l => '  ' + l).join('\n'), 'code']; }
+function diagramBlock(lines) { return [lines.join('\n'), 'diagram']; }
+function tldr(text) { return ['<span style="color:var(--yellow)">⚡</span> ' + text, 'tldr']; }
+function note(text) { return [text, 'dim']; }
+
+const topics = {};
+
+topics.help = {
+  title: 'Help',
+  content: [
+    ['Docker Interactive Lab', 'bold lg'],
+    ['Type a command to explore Docker concepts. Each topic includes the problem, mechanism, visualization, commands, and a takeaway.', 'info'],
+    divider(),
+    ['FUNDAMENTALS', 'section'],
+    ['  basics      — What is Docker, containers vs VMs, architecture', 'info'],
+    ['  images      — Docker images, layers, registries, tags', 'info'],
+    ['  containers  — Container lifecycle, run, exec, logs, inspect', 'info'],
+    divider(),
+    ['BUILD & ORCHESTRATE', 'section'],
+    ['  dockerfile  — Writing Dockerfiles, best practices, multi-stage', 'info'],
+    ['  compose     — Docker Compose, multi-container apps, networks', 'info'],
+    divider(),
+    ['OPERATIONS', 'section'],
+    ['  networking  — Bridge, host, overlay, DNS, expose vs publish', 'info'],
+    ['  storage     — Volumes, bind mounts, tmpfs, drivers', 'info'],
+    ['  security    — Seccomp, capabilities, rootless, content trust', 'info'],
+    divider(),
+    ['VISUALIZATIONS', 'section'],
+    ['  diagram     — Full Docker architecture ASCII map', 'info'],
+    divider(),
+    ['<span style="color:var(--cyan)">Try:</span> basics → images → dockerfile → compose → networking', 'info'],
+  ]
+};
+
+topics.basics = {
+  title: 'Docker Basics',
+  content: [
+    section('What Is Docker?'),
+    ['"Docker packages software into standardized units called containers that include everything needed to run."', 'cyan'],
+    note('Before Docker: "It works on my machine!" After Docker: it works everywhere — dev, test, prod, cloud, laptop.'),
+    divider(),
+    section('Containers vs Virtual Machines'),
+    diagramBlock([
+      '  VIRTUAL MACHINES                    CONTAINERS',
+      '',
+      '  ┌──────────────────┐               ┌──────────────┐',
+      '  │  ┌─────┐ ┌─────┐ │               │  ┌─────┐     │',
+      '  │  │App A│ │App B│ │               │  │ App │     │',
+      '  │  ├─────┤ ├─────┤ │               │  ├─────┤     │',
+      '  │  │ Libs│ │ Libs│ │               │  │ Libs│     │',
+      '  │  ├─────┤ ├─────┤ │               │  ├─────┤     │',
+      '  │  │Guest│ │Guest│ │               │  │     │     │',
+      '  │  │ OS  │ │ OS  │ │               │  └──┬──┘     │',
+      '  │  └──┬──┘ └──┬──┘ │               │     │        │',
+      '  │     └───┬────┘   │               │  Container   │',
+      '  │  ┌──────┴──────┐ │               │  (isolated)  │',
+      '  │  │ Hypervisor  │ │               └──────┬───────┘',
+      '  │  └──────┬──────┘ │                      │',
+      '  └─────────┼────────┘                      │',
+      '            │    ┌───────────────────────────┘',
+      '            ▼    ▼',
+      '       ┌──────────────┐',
+      '       │  Host OS     │',
+      '       │  + Docker    │',
+      '       ├──────────────┤',
+      '       │  Hardware    │',
+      '       └──────────────┘',
+      '',
+      '  VM:   Each VM has its own OS kernel → GBs, slow boot',
+      '  Container: Shares host kernel → MBs, instant start'
+    ]),
+    divider(),
+    section('Docker Architecture'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────────┐',
+      '  │  DOCKER CLIENT (CLI)                             │',
+      '  │  $ docker run, build, pull, push, exec...        │',
+      '  └─────────────────────┬────────────────────────────┘',
+      '                        │ REST API (socket)',
+      '                        ▼',
+      '  ┌──────────────────────────────────────────────────┐',
+      '  │  DOCKER DAEMON (dockerd)                         │',
+      '  │  ┌──────────┐ ┌──────────┐ ┌────────────────┐   │',
+      '  │  │ Container │ │ Images   │ │ Volumes        │   │',
+      '  │  │ Manager   │ │ Manager  │ │ Manager        │   │',
+      '  │  ├──────────┤ ├──────────┤ ├───────────────┤   │',
+      '  │  │ containerd│ │ storage  │ │ local driver   │   │',
+      '  │  │ (runC)    │ │ driver   │ │                │   │',
+      '  │  └──────────┘ └──────────┘ └────────────────┘   │',
+      '  └─────────────────────┬────────────────────────────┘',
+      '                        │',
+      '                        ▼',
+      '  ┌──────────────────────────────────────────────────┐',
+      '  │  REGISTRY (Docker Hub, ECR, GCR, private...)     │',
+      '  │  Stores and distributes images                   │',
+      '  └──────────────────────────────────────────────────┘',
+      '',
+      '  // Docker uses a client-server architecture.',
+      '  // The CLI talks to dockerd via a Unix socket.',
+      '  // dockerd uses containerd + runC to run containers.'
+    ]),
+    divider(),
+    section('Key Components'),
+    ['<span style="color:var(--yellow)">Docker CLI (docker)</span>', 'info'],
+    ['  ■ Your interface to Docker — all commands start here', 'info'],
+    ['<span style="color:var(--yellow)">Docker Daemon (dockerd)</span>', 'info'],
+    ['  ■ Background service that manages containers, images, volumes, networks', 'info'],
+    ['  ■ Listens on /var/run/docker.sock (Unix) or TCP (remote)', 'info'],
+    ['<span style="color:var(--yellow)">containerd</span>', 'info'],
+    ['  ■ Industry-standard container runtime (used by Docker, K8s, etc.)', 'info'],
+    ['  ■ Manages container lifecycle (create, start, stop, delete)', 'info'],
+    ['<span style="color:var(--yellow)">runC</span>', 'info'],
+    ['  ■ Low-level container runtime — actually creates the container', 'info'],
+    ['  ■ Uses Linux cgroups + namespaces + seccomp', 'info'],
+    divider(),
+    section('Essential Commands'),
+    codeBlock([
+      '  # Check version and system info',
+      '  $ docker version',
+      '  $ docker info',
+      '',
+      '  # Run a container',
+      '  $ docker run hello-world  # test the installation',
+      '  $ docker run -it ubuntu bash  # interactive shell',
+      '  $ docker run -d -p 80:80 nginx  # background web server',
+      '',
+      '  # List stuff',
+      '  $ docker ps          # running containers',
+      '  $ docker ps -a       # all containers (including stopped)',
+      '  $ docker images      # downloaded images',
+      '  $ docker volume ls   # volumes',
+      '  $ docker network ls  # networks',
+      '',
+      '  # Clean up',
+      '  $ docker rm $(docker ps -aq)        # remove all containers',
+      '  $ docker rmi $(docker images -q)    # remove all images',
+      '  $ docker system prune -a            # deep clean everything'
+    ]),
+    tldr('Docker packages apps into lightweight, portable containers. Containers share the host kernel (not a full OS), making them fast, small, and consistent across environments.'),
+  ]
+};
+
+topics.images = {
+  title: 'Docker Images',
+  content: [
+    section('Docker Images'),
+    ['"A Docker image is a read-only template with instructions for creating a container. Think of it as a snapshot of a filesystem."', 'cyan'],
+    divider(),
+    section('Image Layers'),
+    diagramBlock([
+      '  A Docker image is built in LAYERS — each instruction',
+      '  in a Dockerfile creates a new layer:',
+      '',
+      '  ┌──────────────────────────────┐',
+      '  │  Layer 6: CMD ["nginx"]      │  ← writable container layer',
+      '  ├──────────────────────────────┤',
+      '  │  Layer 5: COPY . /app        │',
+      '  ├──────────────────────────────┤',
+      '  │  Layer 4: RUN apt install    │',
+      '  ├──────────────────────────────┤',
+      '  │  Layer 3: RUN apt update     │',
+      '  ├──────────────────────────────┤',
+      '  │  Layer 2: ENV DEBIAN_FRONTEND│',
+      '  ├──────────────────────────────┤',
+      '  │  Layer 1: FROM ubuntu:22.04  │  ← base image',
+      '  └──────────────────────────────┘',
+      '',
+      '  // Layers are cached and reused across builds.',
+      '  // If Layer 3 doesn\'t change, Docker reuses it.',
+      '  // Layer ordering matters — change often → put later.'
+    ]),
+    divider(),
+    section('Image Operations'),
+    codeBlock([
+      '  # Pull an image from a registry',
+      '  $ docker pull ubuntu:22.04',
+      '  22.04: Pulling from library/ubuntu',
+      '  2f79e7b8d4b6: Downloading  12.4MB/32.1MB',
+      '  1c4c3b3b8d4b: Download complete',
+      '',
+      '  # List downloaded images',
+      '  $ docker images',
+      '  REPOSITORY   TAG       IMAGE ID       CREATED       SIZE',
+      '  ubuntu       22.04     a1b2c3d4e5f6   2 weeks ago   77MB',
+      '  nginx        latest    b2c3d4e5f6a7   5 days ago    187MB',
+      '  node         20-alpine c3d4e5f6a7b8   3 days ago    128MB',
+      '',
+      '  # Inspect image layers',
+      '  $ docker history nginx',
+      '  IMAGE          CREATED       CREATED BY                 SIZE',
+      '  b2c3d4e5f6a7  5 days ago    CMD ["nginx"]              0B',
+      '  a1b2c3d4e5f6  5 days ago    STOPSIGNAL SIGQUIT          0B',
+      '  9f8e7d6c5b4a  5 days ago    RUN apt install ...         56MB',
+      '',
+      '  # Tag and push',
+      '  $ docker tag myapp:latest veerakumar/myapp:v1',
+      '  $ docker push veerakumar/myapp:v1',
+      '',
+      '  # Save and load (offline transfer)',
+      '  $ docker save myapp:latest > myapp.tar',
+      '  $ docker load < myapp.tar'
+    ]),
+    divider(),
+    section('Image Size Optimization'),
+    codeBlock([
+      '  # Compare base image sizes:',
+      '  ubuntu:22.04       → 77MB',
+      '  debian:bookworm    → 45MB',
+      '  alpine:3.19       → 3.5MB  ← the gold standard',
+      '  scratch           → 0B     ← empty, for static binaries',
+      '',
+      '  # Alpine-based images are dramatically smaller:',
+      '  node:20           → 1.1GB',
+      '  node:20-slim      → 235MB',
+      '  node:20-alpine    → 128MB  ← 8x smaller than full',
+      '',
+      '  # Optimize layer count: combine RUN commands',
+      '  RUN apt-get update && apt-get install -y \\',
+      '      curl \\',
+      '      git \\',
+      '      nginx \\',
+      '  && rm -rf /var/lib/apt/lists/*  # clean apt cache'
+    ]),
+    divider(),
+    section('Registries & Tagging'),
+    codeBlock([
+      '  # Naming convention:',
+      '  # [registry/][namespace/]image[:tag]',
+      '',
+      '  docker push myrepo/myapp:1.0.0',
+      '  │         │      │      │',
+      '  │         │      │      └── tag (version)',
+      '  │         │      └───────── image name',
+      '  │         └──────────────── namespace/user',
+      '  └────────────────────────── registry (default = Docker Hub)',
+      '',
+      '  # Default tag is "latest" (be careful — it\'s mutable!)',
+      '',
+      '  # Private registries:',
+      '  $ docker login myregistry.com',
+      '  $ docker tag myapp myregistry.com/team/myapp:v1',
+      '  $ docker push myregistry.com/team/myapp:v1',
+      '',
+      '  # Major registries:',
+      '  #  Docker Hub     — hub.docker.com',
+      '  #  GitHub CR      — ghcr.io',
+      '  #  AWS ECR        — *.dkr.ecr.*.amazonaws.com',
+      '  #  Google GCR     — gcr.io',
+      '  #  Self-hosted    — your-own-registry.com'
+    ]),
+    tldr('Images are read-only templates built in layers. Layers are cached and shared. Alpine images minimize size. Tags are mutable labels. Always push to a registry for distribution.'),
+  ]
+};
+
+topics.containers = {
+  title: 'Docker Containers',
+  content: [
+    section('Docker Containers'),
+    ['"A container is a runnable instance of an image — an isolated process with its own filesystem, network, and process tree."', 'cyan'],
+    divider(),
+    section('Container Lifecycle'),
+    diagramBlock([
+      '                    ┌──────────┐',
+      '                    │  IMAGE   │',
+      '                    └────┬─────┘',
+      '                         │ docker run',
+      '                         ▼',
+      '                    ┌──────────┐',
+      '              ┌────→│ CREATED  │←──── docker create',
+      '              │     └────┬─────┘',
+      '              │          │ docker start',
+      '              │          ▼',
+      '              │     ┌──────────┐',
+      '              │     │ RUNNING  │────── docker pause → PAUSED',
+      '              │     └────┬─────┘────── docker unpause ←',
+      '              │          │',
+      '              │  docker  │ docker kill (SIGKILL)',
+      '              │  stop    │ docker restart',
+      '              │ (SIGTERM)▼',
+      '              │     ┌──────────┐',
+      '              └─────│ STOPPED  │────── docker rm → removed',
+      '                    └──────────┘',
+      '',
+      '  // docker stop  = SIGTERM + grace period + SIGKILL',
+      '  // docker kill  = immediate SIGKILL (or custom signal)',
+      '  // docker rm -f = force remove running container'
+    ]),
+    divider(),
+    section('Running Containers'),
+    codeBlock([
+      '  # Run a container in the foreground',
+      '  $ docker run -it --name myapp ubuntu bash',
+      '  root@abc123:/#  # you are INSIDE the container!',
+      '',
+      '  # Run in background (detached)',
+      '  $ docker run -d --name web -p 80:80 nginx',
+      '  abc123def456...  # container ID',
+      '',
+      '  # Run with resource limits',
+      '  $ docker run -d --memory=256m --cpus=0.5 nginx',
+      '',
+      '  # Run and auto-remove on exit',
+      '  $ docker run --rm -it ubuntu bash',
+      '',
+      '  # Run with environment variables',
+      '  $ docker run -e DB_HOST=localhost -e DB_PORT=5432 myapp',
+      '',
+      '  # Run with restart policy',
+      '  $ docker run -d --restart unless-stopped nginx'
+    ]),
+    divider(),
+    section('Container Management'),
+    codeBlock([
+      '  # Execute a command in a running container',
+      '  $ docker exec -it web bash        # interactive shell',
+      '  $ docker exec web nginx -t        # test nginx config',
+      '',
+      '  # View logs',
+      '  $ docker logs web                 # all logs',
+      '  $ docker logs -f web              # follow (tail -f)',
+      '  $ docker logs --tail 50 web       # last 50 lines',
+      '  $ docker logs -t web              # with timestamps',
+      '',
+      '  # Inspect container details (JSON)',
+      '  $ docker inspect web',
+      '  $ docker inspect web | jq ".[0].NetworkSettings.IPAddress"',
+      '',
+      '  # Resource usage',
+      '  $ docker stats                    # live CPU/mem/IO per container',
+      '  $ docker top web                  # running processes in container',
+      '',
+      '  # Copy files in/out',
+      '  $ docker cp web:/etc/nginx/nginx.conf ./',
+      '  $ docker cp ./file.txt web:/tmp/'
+    ]),
+    divider(),
+    section('The Magic: What Makes a Container?'),
+    codeBlock([
+      '  Every container uses Linux kernel features:',
+      '',
+      '  ■ NAMESPACES — Isolate what the process can SEE',
+      '    ┌──────────────┬──────────────────────────┐',
+      '    │ Namespace    │ What it isolates          │',
+      '    ├──────────────┼──────────────────────────┤',
+      '    │ pid          │ Process IDs (PID 1 inside)│',
+      '    │ net          │ Network interfaces, routes│',
+      '    │ mnt          │ Mount points, filesystems │',
+      '    │ uts          │ Hostname, domain name     │',
+      '    │ ipc          │ Inter-process comms       │',
+      '    │ user         │ UID/GID mapping           │',
+      '    │ cgroup       │ Resource limits           │',
+      '    │ time         │ System time               │',
+      '    └──────────────┴──────────────────────────┘',
+      '',
+      '  ■ CGROUPS — Limit what the process can USE',
+      '    cpu, memory, disk I/O, network, PID count',
+      '',
+      '  ■ SECCOMP — Limit what SYSCALLS the process can make',
+      '    Default: blocks ~44 dangerous calls (reboot, kexec...)',
+      '',
+      '  ■ CAPABILITIES — Fine-grained privileges',
+      '    --cap-drop=ALL --cap-add=NET_BIND_SERVICE'
+    ]),
+    tldr('A container is just an isolated Linux process: namespaces for what it sees, cgroups for what it uses, seccomp for what it can do. No magic — just Linux.'),
+  ]
+};
+
+topics.dockerfile = {
+  title: 'Dockerfile Best Practices',
+  content: [
+    section('Writing Dockerfiles'),
+    ['"A Dockerfile is a recipe for building images — each instruction creates a layer."', 'cyan'],
+    divider(),
+    section('Anatomy of a Dockerfile'),
+    codeBlock([
+      '  # === BASE ===',
+      '  FROM node:20-alpine AS build',
+      '  WORKDIR /app',
+      '',
+      '  # === DEPENDENCIES (cached separately!) ===',
+      '  COPY package*.json ./',
+      '  RUN npm ci --only=production',
+      '',
+      '  # === BUILD ===',
+      '  COPY . .',
+      '  RUN npm run build',
+      '',
+      '  # === PRODUCTION ===',
+      '  FROM nginx:alpine',
+      '  COPY --from=build /app/dist /usr/share/nginx/html',
+      '  EXPOSE 80',
+      '  CMD ["nginx", "-g", "daemon off;"]'
+    ]),
+    divider(),
+    section('Key Instructions'),
+    codeBlock([
+      '  INSTRUCTION   │ PURPOSE',
+      '  ──────────────┼───────────────────────────────────',
+      '  FROM          │ Base image (must be first)',
+      '  WORKDIR       │ Set working directory',
+      '  COPY          │ Copy files from context/stage',
+      '  ADD           │ Copy + auto-extract tar/URL',
+      '  RUN           │ Execute commands (creates a layer)',
+      '  ENV           │ Set environment variable',
+      '  ARG           │ Build-time variable',
+      '  EXPOSE        │ Document port (metadata only)',
+      '  CMD           │ Default command (can be overridden)',
+      '  ENTRYPOINT    │ Fixed command (harder to override)',
+      '  LABEL         │ Metadata (maintainer, version)',
+      '  HEALTHCHECK   │ Container health check command',
+      '  USER          │ Switch to non-root user',
+      '  VOLUME        │ Declare mount point'
+    ]),
+    divider(),
+    section('Best Practices'),
+    codeBlock([
+      '  # 1. Use .dockerignore (like .gitignore)',
+      '  $ cat .dockerignore',
+      '  node_modules',
+      '  .git',
+      '  *.md',
+      '  Dockerfile',
+      '  .env',
+      '',
+      '  # 2. Order layers by change frequency',
+      '  #    Dependencies first, code last',
+      '  COPY package*.json ./   # rarely changes',
+      '  RUN npm ci              # cached until packages change',
+      '  COPY . .                # changes every build',
+      '',
+      '  # 3. Use multi-stage builds',
+      '  #    Build stage has tools → final stage has only binary',
+      '  #    Final image is SMALL and SECURE',
+      '',
+      '  # 4. Don\'t run as root',
+      '  RUN addgroup -g 1001 -S nodejs && \\',
+      '      adduser -S nodejs -u 1001',
+      '  USER nodejs',
+      '',
+      '  # 5. Prefer COPY over ADD (COPY is explicit)',
+      '  #    ADD can surprise you (tar auto-extraction)',
+      '',
+      '  # 6. Clean up in the same RUN layer',
+      '  RUN apt-get update && apt-get install -y \\',
+      '      curl \\',
+      '  && rm -rf /var/lib/apt/lists/*'
+    ]),
+    divider(),
+    section('Multi-Stage Builds'),
+    codeBlock([
+      '  # GO BUILD (stage 1)',
+      '  FROM golang:1.22 AS builder',
+      '  WORKDIR /src',
+      '  COPY go.mod go.sum ./',
+      '  RUN go mod download',
+      '  COPY . .',
+      '  RUN CGO_ENABLED=0 go build -o /app/server',
+      '',
+      '  # FINAL (stage 2) — minimal image',
+      '  FROM scratch',
+      '  COPY --from=builder /app/server /server',
+      '  COPY --from=builder /etc/ssl/certs /etc/ssl/certs',
+      '  EXPOSE 8080',
+      '  CMD ["/server"]',
+      '',
+      '  # Result: a ~10MB image with NO OS, just the binary!',
+      '  # This is the holy grail: tiny, fast, secure.'
+    ]),
+    divider(),
+    section('Build Commands'),
+    codeBlock([
+      '  # Build an image',
+      '  $ docker build -t myapp:latest .',
+      '',
+      '  # Build with build args',
+      '  $ docker build --build-arg VERSION=1.2.3 -t myapp .',
+      '',
+      '  # Build with a specific Dockerfile',
+      '  $ docker build -f Dockerfile.prod -t myapp:prod .',
+      '',
+      '  # Cache busting',
+      '  $ docker build --no-cache -t myapp .',
+      '',
+      '  # BuildKit features (faster, better cache)',
+      '  $ DOCKER_BUILDKIT=1 docker build -t myapp .',
+      '',
+      '  # Tag during build',
+      '  $ docker build -t myapp:v1.0 -t myapp:latest .'
+    ]),
+    tldr('Dockerfiles are recipes: order layers by change frequency, use multi-stage builds, don\'t run as root, clean up in the same RUN layer. The goal is small, fast, secure images.'),
+  ]
+};
+
+topics.compose = {
+  title: 'Docker Compose',
+  content: [
+    section('Docker Compose'),
+    ['"Compose defines and runs multi-container Docker applications using a YAML file."', 'cyan'],
+    note('A single docker-compose.yml can define an entire stack: web server, database, cache, queue, worker. One command to start everything.'),
+    divider(),
+    section('docker-compose.yml Anatomy'),
+    codeBlock([
+      '  version: "3.9"',
+      '',
+      '  services:',
+      '    web:',
+      '      build: .',
+      '      ports:',
+      '        - "80:80"',
+      '      depends_on:',
+      '        - db',
+      '        - redis',
+      '      environment:',
+      '        DB_HOST: db',
+      '        REDIS_HOST: redis',
+      '',
+      '    db:',
+      '      image: postgres:16-alpine',
+      '      volumes:',
+      '        - pgdata:/var/lib/postgresql/data',
+      '      environment:',
+      '        POSTGRES_PASSWORD: ${DB_PASSWORD}',
+      '',
+      '    redis:',
+      '      image: redis:7-alpine',
+      '      ports:',
+      '        - "6379:6379"',
+      '',
+      '  volumes:',
+      '    pgdata:',
+      '',
+      '  networks:',
+      '    default:',
+      '      driver: bridge'
+    ]),
+    divider(),
+    section('Compose Commands'),
+    codeBlock([
+      '  # Start all services',
+      '  $ docker compose up -d',
+      '',
+      '  # Build and start',
+      '  $ docker compose up --build -d',
+      '',
+      '  # View logs',
+      '  $ docker compose logs -f',
+      '  $ docker compose logs -f web',
+      '',
+      '  # List services',
+      '  $ docker compose ps',
+      '',
+      '  # Execute command in a service',
+      '  $ docker compose exec web bash',
+      '  $ docker compose exec db psql -U postgres',
+      '',
+      '  # Scale a service',
+      '  $ docker compose up -d --scale worker=3',
+      '',
+      '  # Stop without removing',
+      '  $ docker compose stop',
+      '',
+      '  # Stop and remove everything',
+      '  $ docker compose down',
+      '  $ docker compose down -v  # also remove volumes',
+      '',
+      '  # Check config',
+      '  $ docker compose config'
+    ]),
+    divider(),
+    section('Environment Variables & .env'),
+    codeBlock([
+      '  # .env file (auto-loaded by Compose)',
+      '  $ cat .env',
+      '  DB_PASSWORD=s3cret',
+      '  DB_NAME=myapp',
+      '  NGINX_PORT=8080',
+      '',
+      '  # Use in docker-compose.yml:',
+      '  environment:',
+      '    DB_PASSWORD: ${DB_PASSWORD:-defaultpass}',
+      '    DB_NAME: ${DB_NAME}',
+      '    NGINX_PORT: ${NGINX_PORT}',
+      '',
+      '  # Variable substitution:',
+      '  ${VAR}         # required (error if not set)',
+      '  ${VAR:-default} # optional with default',
+      '  ${VAR:?error}  # required with custom error msg',
+      '',
+      '  # Override for specific environment:',
+      '  $ docker compose --env-file .env.prod up -d'
+    ]),
+    divider(),
+    section('Compose File Features'),
+    codeBlock([
+      '  # Health checks',
+      '  healthcheck:',
+      '    test: ["CMD", "curl", "-f", "http://localhost"]',
+      '    interval: 30s',
+      '    timeout: 10s',
+      '    retries: 3',
+      '',
+      '  # Resource limits',
+      '  deploy:',
+      '    resources:',
+      '      limits:',
+      '        cpus: "0.5"',
+      '        memory: "256M"',
+      '',
+      '  # Named volumes (persist data)',
+      '  volumes:',
+      '    pgdata:',
+      '      driver: local',
+      '',
+      '  # Configs and secrets (swarm)',
+      '  secrets:',
+      '    db_password:',
+      '      file: ./secrets/db_password.txt',
+      '',
+      '  # Profiles (selective startup)',
+      '  profiles:',
+      '    - monitoring',
+      '  # Start only: docker compose --profile monitoring up'
+    ]),
+    tldr('Docker Compose turns a YAML file into a multi-container application. Define services, networks, volumes, and env vars. One docker compose up to run your entire stack.'),
+  ]
+};
+
+topics.networking = {
+  title: 'Docker Networking',
+  content: [
+    section('Docker Networking'),
+    ['"Docker networking connects containers to each other and to the outside world through virtual networks."', 'cyan'],
+    divider(),
+    section('Network Drivers'),
+    diagramBlock([
+      '  DOCKER NETWORK DRIVERS',
+      '',
+      '  bridge  ── Default. Internal network on the host.',
+      '               Containers communicate via IP.',
+      '               Port mapping: -p 80:80',
+      '',
+      '  host    ── No isolation. Container shares host',
+      '               network stack. Fast but less secure.',
+      '',
+      '  overlay ── Multi-host networking for Swarm/K8s.',
+      '               Containers on different hosts can',
+      '               communicate as if on the same network.',
+      '',
+      '  macvlan ── Assign a MAC address to each container.',
+      '               Containers appear as physical devices',
+      '               on the network.',
+      '',
+      '  none    ── No network. Completely isolated.',
+      '',
+      '  custom  ── User-defined bridge with DNS resolution',
+      '               by container name (unlike default bridge).'
+    ]),
+    divider(),
+    section('Default Bridge Network'),
+    codeBlock([
+      '  # When you install Docker, you get a Linux bridge:',
+      '  $ ip link show docker0',
+      '  docker0: <BROADCAST,MULTICAST,UP> mtu 1500',
+      '      inet 172.17.0.1/16',
+      '',
+      '  # Each container gets a veth pair:',
+      '  $ docker run -d --name web nginx',
+      '  $ ip link  # you\'ll see vethXXXX interfaces',
+      '',
+      '  # Containers on the default bridge can reach each',
+      '  # other by IP (not by name)',
+      '  $ docker inspect web | jq ".[0].NetworkSettings.IPAddress"',
+      '  "172.17.0.2"',
+      '',
+      '  # Port publishing: maps host port to container port',
+      '  $ docker run -d -p 8080:80 nginx',
+      '  # Host:8080 → Container:80'
+    ]),
+    divider(),
+    section('User-Defined Bridge (DNS!)'),
+    codeBlock([
+      '  # Create a custom network',
+      '  $ docker network create mynet',
+      '',
+      '  # Run containers on the custom network',
+      '  $ docker run -d --net mynet --name web nginx',
+      '  $ docker run -d --net mynet --name db postgres',
+      '',
+      '  # Now they can resolve each other by NAME!',
+      '  $ docker exec web ping db',
+      '  PING db (172.18.0.3)',
+      '',
+      '  # This is DNS-based service discovery.',
+      '  # Docker\'s embedded DNS server resolves container names.',
+      '  # The default bridge does NOT have this feature.',
+      '',
+      '  # Connect a running container to a network',
+      '  $ docker network connect mynet web',
+      '  $ docker network disconnect mynet web'
+    ]),
+    divider(),
+    section('Port Publishing Deep Dive'),
+    codeBlock([
+      '  # Single port',
+      '  $ docker run -p 80:80 nginx',
+      '  # Host:80 → Container:80',
+      '',
+      '  # Different host/container ports',
+      '  $ docker run -p 8080:80 nginx',
+      '  # Host:8080 → Container:80',
+      '',
+      '  # Bind to specific interface',
+      '  $ docker run -p 127.0.0.1:80:80 nginx',
+      '  # Only localhost, not externally accessible',
+      '',
+      '  # UDP port',
+      '  $ docker run -p 53:53/udp dns-server',
+      '',
+      '  # Range of ports',
+      '  $ docker run -p 8000-8010:80 nginx',
+      '',
+      '  # EXPOSE in Dockerfile is DOCUMENTATION only',
+      '  # It does NOT publish the port!',
+      '  # You still need -p or --publish to expose it.',
+      '',
+      '  # See port mappings:',
+      '  $ docker port web',
+      '  80/tcp -> 0.0.0.0:80'
+    ]),
+    divider(),
+    section('Container-to-Container Communication'),
+    diagramBlock([
+      '  SCENARIO: Web app + Database + Cache',
+      '',
+      '  ┌─────────┐    ┌──────────┐    ┌──────────┐',
+      '  │  nginx  │    │ postgres │    │  redis   │',
+      '  │  :80    │    │  :5432   │    │  :6379   │',
+      '  └────┬────┘    └─────┬────┘    └─────┬────┘',
+      '       │               │               │',
+      '       └───────────────┼───────────────┘',
+      '                       │',
+      '               ┌───────┴───────┐',
+      '               │   mynet       │',
+      '               │ (bridge)      │',
+      '               └───────────────┘',
+      '',
+      '  # All three can resolve each other by container name:',
+      '  $ docker exec nginx ping postgres  # works',
+      '  $ docker exec nginx ping redis     # works',
+      '',
+      '  # External access: only nginx:80 is published.',
+      '  # db and redis are INTERNAL only (more secure).'
+    ]),
+    tldr('Docker networks isolate or connect containers. Use custom bridge networks for DNS-based service discovery. Port publishing (-p) opens containers to the outside. Overlay networks connect containers across hosts.'),
+  ]
+};
+
+topics.storage = {
+  title: 'Docker Storage',
+  content: [
+    section('Docker Storage'),
+    ['"Containers are ephemeral — storage makes data persistent across container lifecycles."', 'cyan'],
+    divider(),
+    section('Storage Options'),
+    diagramBlock([
+      '  HOW DATA PERSISTS IN DOCKER',
+      '',
+      '  ┌──────────────────────────────────────────────┐',
+      '  │  Container (writable layer)                  │',
+      '  │  ┌──────────────────────────────────────┐    │',
+      '  │  │  Changes written here:               │    │',
+      '  │  │  • apt-get install                   │    │',
+      '  │  │  • config files modified             │    │',
+      '  │  │  • logs generated                    │    │',
+      '  │  │  • LOST when container is removed!    │    │',
+      '  │  └──────────────────────────────────────┘    │',
+      '  └──────────────┬───────────────────────────────┘',
+      '                 │',
+      '     ┌───────────┼───────────────┐',
+      '     ▼           ▼               ▼',
+      '  ┌──────┐  ┌──────────┐  ┌──────────┐',
+      '  │Volume│  │Bind Mount│  │ tmpfs    │',
+      '  │      │  │          │  │ (memory) │',
+      '  │Managed│  │Any host  │  │Temporary │',
+      '  │by     │  │directory │  │non-persis│',
+      '  │Docker │  │          │  │          │',
+      '  └──────┘  └──────────┘  └──────────┘',
+      '  PERSISTENT  PERSISTENT  VOLATILE',
+      '  Best for    Configs,   Secrets,',
+      '  databases   dev code   temp data'
+    ]),
+    divider(),
+    section('Volumes (Recommended)'),
+    codeBlock([
+      '  # Create a volume',
+      '  $ docker volume create mydata',
+      '',
+      '  # List volumes',
+      '  $ docker volume ls',
+      '  DRIVER    VOLUME NAME',
+      '  local     mydata',
+      '',
+      '  # Mount a volume in a container',
+      '  $ docker run -v mydata:/data ubuntu',
+      '',
+      '  # Mount with mount flag (newer syntax)',
+      '  $ docker run --mount type=volume,source=mydata,target=/data ubuntu',
+      '',
+      '  # Volume location on host:',
+      '  $ docker volume inspect mydata',
+      '  {"Mountpoint": "/var/lib/docker/volumes/mydata/_data"}',
+      '',
+      '  # Backup a volume',
+      '  $ docker run --rm -v mydata:/data -v $(pwd):/backup ubuntu \\',
+      '    tar czf /backup/mydata.tar.gz -C /data .',
+      '',
+      '  # Remove unused volumes',
+      '  $ docker volume prune'
+    ]),
+    divider(),
+    section('Bind Mounts'),
+    codeBlock([
+      '  # Mount a HOST directory into a container',
+      '  $ docker run -v /host/path:/container/path nginx',
+      '',
+      '  # Bind mount with mount flag',
+      '  $ docker run --mount type=bind,source="$(pwd)",target=/app nginx',
+      '',
+      '  # Read-only bind mount',
+      '  $ docker run -v /host/data:/data:ro nginx',
+      '',
+      '  # Use cases for bind mounts:',
+      '  ■ Development — edit code on host, changes reflected in container',
+      '  ■ Config files — mount custom nginx.conf',
+      '  ■ Logs — write logs to host for analysis',
+      '  ■ Docker socket — /var/run/docker.sock (Docker-in-Docker)',
+      '',
+      '  # Bind mount vs Volume:',
+      '  #  Volume  = Docker manages storage (portable, safe)',
+      '  #  Bind    = You manage the path (convenient for dev)'
+    ]),
+    divider(),
+    section('tmpfs Mounts'),
+    codeBlock([
+      '  # tmpfs: store data in memory (fast, temporary)',
+      '  $ docker run --tmpfs /tmp ubuntu',
+      '',
+      '  # With mount flag:',
+      '  $ docker run --mount type=tmpfs,destination=/app,tmpfs-size=64M nginx',
+      '',
+      '  # Use cases:',
+      '  ■ Secrets that should never touch disk',
+      '  ■ Temporary cache files',
+      '  ■ Scratch space for batch processing',
+      '',
+      '  # tmpfs data is:',
+      '  #  ■ FAST — it\'s in RAM',
+      '  #  ■ EPHEMERAL — gone when container stops',
+      '  #  ■ SECURE — never written to disk'
+    ]),
+    divider(),
+    section('Storage Drivers'),
+    codeBlock([
+      '  # Docker uses storage drivers to manage layers:',
+      '',
+      '  Driver      │ Linux distros      │ Features',
+      '  ────────────┼────────────────────┼────────────────',
+      '  overlay2    │ All modern distros │ Default, fast, stable',
+      '  aufs        │ Ubuntu legacy      │ Deprecated',
+      '  devicemapper│ RHEL 7.x           │ Legacy',
+      '  btrfs/zfs   │ Specific FS        │ Native FS features',
+      '  vfs         │ Any (simple)       │ No CoW, no layers',
+      '',
+      '  $ docker info | grep "Storage Driver"',
+      '  Storage Driver: overlay2',
+      '',
+      '  # overlay2 layers:',
+      '  /var/lib/docker/overlay2/',
+      '  ├── <layer-id>/  # read-only image layer',
+      '  ├── <layer-id>/  # another image layer',
+      '  └── <container-id>/  # writable container layer',
+      '',
+      '  // The Copy-on-Write (CoW) mechanism:',
+      '  // When a container modifies a file from an image layer,',
+      '  // the file is copied to the writable layer first.',
+      '  // This saves disk space and speeds up container creation.'
+    ]),
+    tldr('Volumes are Docker-managed persistent storage (best for databases). Bind mounts share host directories (great for dev). tmpfs is in-memory storage (fast, ephemeral). The overlay2 driver enables efficient layer-based storage with Copy-on-Write.'),
+  ]
+};
+
+topics.security = {
+  title: 'Docker Security',
+  content: [
+    section('Docker Security'),
+    ['"Docker containers share the host kernel — security must be multi-layered."', 'cyan'],
+    divider(),
+    section('Security Layers'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────┐',
+      '  │  1. IMAGE SECURITY                           │',
+      '  │     • Use minimal base images (alpine)        │',
+      '  │     • Scan for vulnerabilities (docker scan)  │',
+      '  │     • Sign images with Docker Content Trust   │',
+      '  │     • Pin specific image digests              │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │  2. BUILD SECURITY                           │',
+      '  │     • Don\'t run as root (USER directive)      │',
+      '  │     • Multi-stage builds (no build tools)     │',
+      '  │     • No secrets in build args                │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │  3. RUNTIME SECURITY                         │',
+      '  │     • Drop all capabilities, add only needed  │',
+      '  │     • Read-only root filesystem               │',
+      '  │     • Seccomp profile (restrict syscalls)     │',
+      '  │     • Resource limits (cgroups)               │',
+      '  │     • No new privileges (no-new-privs)        │',
+      '  ├──────────────────────────────────────────────┤',
+      '  │  4. HOST SECURITY                            │',
+      '  │     • Rootless Docker (no root daemon)        │',
+      '  │     • User namespaces (remap root inside)     │',
+      '  │     • Audit docker.sock access                │',
+      '  └──────────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Running Secure Containers'),
+    codeBlock([
+      '  # The gold standard for secure containers:',
+      '',
+      '  $ docker run --rm -d \\',
+      '    --name secure-app \\',
+      '    --cap-drop=ALL \\',
+      '    --cap-add=NET_BIND_SERVICE \\',
+      '    --security-opt=no-new-privileges:true \\',
+      '    --security-opt=seccomp=default.json \\',
+      '    --read-only-rootfs \\',
+      '    --user 1001:1001 \\',
+      '    --memory=256m \\',
+      '    --cpus=0.5 \\',
+      '    --pids-limit=100 \\',
+      '    nginx',
+      '',
+      '  # What this does:',
+      '  #   --cap-drop=ALL            no capabilities at all',
+      '  #   --cap-add=NET_BIND...     except binding to ports < 1024',
+      '  #   --security-opt            prevent privilege escalation',
+      '  #   --read-only-rootfs        can\'t write to / (except volumes)',
+      '  #   --user 1001               run as non-root user',
+      '  #   --memory/--cpus           resource limits (DoS protection)',
+      '  #   --pids-limit              prevent fork bombs'
+    ]),
+    divider(),
+    section('Docker Content Trust'),
+    codeBlock([
+      '  # Sign and verify images',
+      '',
+      '  $ export DOCKER_CONTENT_TRUST=1',
+      '',
+      '  # When enabled, Docker ONLY pulls signed images:',
+      '  $ docker pull nginx:latest',
+      '  Error: remote trust data does not exist',
+      '',
+      '  # Sign your own images:',
+      '  $ docker trust sign myapp:production',
+      '  $ docker trust inspect myapp:production',
+      '',
+      '  # Check image signature:',
+      '  $ docker trust inspect --pretty nginx',
+      '',
+      '  # Uses The Update Framework (TUF)',
+      '  # Prevents man-in-the-middle and replay attacks',
+      '',
+      '  # Alternative: use image digests (immutable references)',
+      '  $ docker pull nginx@sha256:abc123...'
+    ]),
+    divider(),
+    section('Rootless Docker'),
+    codeBlock([
+      '  # Run Docker daemon without root privileges',
+      '  # The daemon and containers run as a non-root user',
+      '',
+      '  $ dockerd-rootless-setuptool.sh install',
+      '',
+      '  # How it works:',
+      '  #  ■ Rootless dockerd runs in a user namespace',
+      '  #  ■ Inside: you ARE root (can bind <1024, etc.)',
+      '  #  ■ Outside: you\'re just user 1001',
+      '  #  ■ Uses slirp4netns for networking',
+      '  #  ■ Uses fuse-overlayfs for storage',
+      '',
+      '  # Without rootless:',
+      '  #  dockerd runs as root → all containers COULD',
+      '  #  potentially break out to root on the host',
+      '',
+      '  # With rootless:',
+      '  #  Even if a container escapes, it\'s just user 1001'
+    ]),
+    divider(),
+    section('Security Scanning & Best Practices'),
+    codeBlock([
+      '  # Scan images for vulnerabilities',
+      '  $ docker scout quickview nginx',
+      '  $ docker scout recommendations nginx',
+      '',
+      '  # Third-party scanners',
+      '  $ trivy image nginx',
+      '  $ grype nginx',
+      '  $ snyk container test nginx',
+      '',
+      '  # Security checklist:',
+      '  ■ Use minimal base images (alpine, distroless, scratch)',
+      '  ■ Pin exact versions (not "latest")',
+      '  ■ Scan images in CI/CD pipeline',
+      '  ■ Never store secrets in images',
+      '  ■ Use secrets management (docker secret, HashiCorp Vault)',
+      '  ■ Enable audit logging for Docker daemon',
+      '  ■ Regularly update Docker and host kernel',
+      '  ■ Run containers with least privilege',
+      '  ■ Use read-only rootfs where possible',
+      '',
+      '  # Docker Bench Security — audit tool:',
+      '  $ docker run --net host --pid host \\',
+      '    -v /var/run/docker.sock:/var/run/docker.sock \\',
+      '    docker/docker-bench-security'
+    ]),
+    tldr('Docker security is layered: minimal images, least-privilege containers, signature verification, rootless daemon. Drop all capabilities, run as non-root, use read-only filesystems, scan for vulnerabilities.'),
+  ]
+};
+
+topics.diagram = {
+  title: 'Docker Architecture',
+  content: [
+    section('Complete Docker Architecture'),
+    ['The full Docker ecosystem: from CLI to kernel, with all components.', 'info'],
+    divider(),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────────────────┐',
+      '  │                   DOCKER CLI                             │',
+      '  │  $ docker run / build / pull / push / exec / compose...  │',
+      '  │                     │                                    │',
+      '  │            /var/run/docker.sock                          │',
+      '  └─────────────────────┼────────────────────────────────────┘',
+      '                        │',
+      '                        ▼',
+      '  ┌──────────────────────────────────────────────────────────┐',
+      '  │                DOCKER DAEMON (dockerd)                   │',
+      '  │                                                          │',
+      '  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │',
+      '  │  │  IMAGE MGMT   │  │ CONTAINER    │  │ VOLUME/NET   │  │',
+      '  │  │  • pull/push  │  │ MGMT         │  │ MGMT         │  │',
+      '  │  │  • build      │  │ • create/run │  │ • create     │  │',
+      '  │  │  • tag        │  │ • start/stop │  │ • mount      │  │',
+      '  │  │  • history    │  │ • exec/logs  │  │ • connect    │  │',
+      '  │  └──────────────┘  └──────┬───────┘  └──────────────┘  │',
+      '  └───────────────────────────┼─────────────────────────────┘',
+      '                               │',
+      '                               ▼',
+      '  ┌──────────────────────────────────────────────────────────┐',
+      '  │              CONTAINERD (container runtime)              │',
+      '  │  • Manages container lifecycle (OCI-compliant)          │',
+      '  │  • Image transfer, snapshots, metrics                   │',
+      '  │  • Used by both Docker and Kubernetes                   │',
+      '  └───────────────────────────┼─────────────────────────────┘',
+      '                               │',
+      '                               ▼',
+      '  ┌──────────────────────────────────────────────────────────┐',
+      '  │              runC (low-level runtime)                    │',
+      '  │  • Creates the container from OCI bundle                │',
+      '  │  • Uses Linux kernel primitives directly                │',
+      '  │  • The actual process that runs your app                │',
+      '  └───────────────────────────┼─────────────────────────────┘',
+      '                               │',
+      '                               ▼',
+      '  ┌──────────────────────────────────────────────────────────┐',
+      '  │               LINUX KERNEL                               │',
+      '  │                                                          │',
+      '  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │',
+      '  │  │ NAMESPACES  │  │  CGROUPS    │  │   SECCOMP       │ │',
+      '  │  │ • pid       │  │  • cpu      │  │  • syscall      │ │',
+      '  │  │ • net       │  │  • memory   │  │    filtering    │ │',
+      '  │  │ • mnt       │  │  • blkio    │  │  • default      │ │',
+      '  │  │ • uts       │  │  • pids     │  │    profile      │ │',
+      '  │  │ • ipc       │  │  • devices  │  │                 │ │',
+      '  │  │ • user      │  │  • cpuset   │  │                 │ │',
+      '  │  └─────────────┘  └─────────────┘  └─────────────────┘ │',
+      '  │                                                          │',
+      '  │  ┌──────────────────────────────────────────────────┐   │',
+      '  │  │  NETWORKING:  bridge → veth pairs, iptables/nft  │   │',
+      '  │  │  STORAGE:     overlay2 → CoW layers, ext4/xfs   │   │',
+      '  │  └──────────────────────────────────────────────────┘   │',
+      '  └──────────────────────────────────────────────────────────┘'
+    ]),
+    divider(),
+    section('Container Image Distribution Flow'),
+    diagramBlock([
+      '  BUILD                    PUSH                    PULL',
+      '  ┌─────────┐             ┌────────┐             ┌────────┐',
+      '  │Dockerfile│──build──→  │Registry│──pull─────→  │  Host  │',
+      '  │  .      │  image     │  Hub   │  image       │  Deploy│',
+      '  └─────────┘            └────────┘             └────────┘',
+      '       │                      │                      │',
+      '       ▼                      ▼                      ▼',
+      '  ┌──────────────────────────────────────────────────────┐',
+      '  │  Image Layers (cached & shared across builds/hosts)  │',
+      '  │                                                      │',
+      '  │  Layer SHA256:def456 ← Layer SHA256:abc123 ← Base   │',
+      '  │  Each layer is content-addressed by its SHA256 hash  │',
+      '  │  Immutable once created — tagged by reference        │',
+      '  └──────────────────────────────────────────────────────┘',
+      '',
+      '  // Content-addressable storage:',
+      '  // If two images share the same base layer,',
+      '  // they share the SAME file on disk.',
+      '  // No duplication — this is why Docker is disk-efficient.'
+    ]),
+    divider(),
+    section('Docker Compose Architecture'),
+    diagramBlock([
+      '  ┌──────────────────────────────────────────────┐',
+      '  │  docker compose up -d                        │',
+      '  │  Reads docker-compose.yml                    │',
+      '  └──────────────────┬───────────────────────────┘',
+      '                     │',
+      '                     ▼',
+      '  ┌──────────────────────────────────────────────┐',
+      '  │  Creates default network "app_default"       │',
+      '  │  Creates named volumes "app_data"            │',
+      '  └──────────────────┬───────────────────────────┘',
+      '                     │',
+      '          ┌──────────┼──────────┐',
+      '          ▼          ▼          ▼',
+      '  ┌────────────┐ ┌────────┐ ┌────────┐',
+      '  │  web       │ │  db    │ │ redis  │',
+      '  │  :80       │ │  :5432 │ │ :6379  │',
+      '  │  depends_on│ │ volume │ │        │',
+      '  │  db, redis │ │ pgdata │ │        │',
+      '  └────────────┘ └────────┘ └────────┘',
+      '          │          │          │',
+      '          └──────────┼──────────┘',
+      '                     │',
+      '               ┌─────┴─────┐',
+      '               │ app_net   │',
+      '               │ (bridge)  │',
+      '               └───────────┘',
+      '',
+      '  // Each service gets DNS resolution by name:',
+      '  // web can resolve "db" and "redis" via Docker DNS'
+    ]),
+    divider(),
+    section('Key Takeaways'),
+    ['  ■ Docker packages apps into portable, lightweight containers', 'info'],
+    ['  ■ Images are built in layers — cached and shared', 'info'],
+    ['  ■ Containers are isolated Linux processes (namespaces + cgroups)', 'info'],
+    ['  ■ Multi-stage builds produce tiny, secure images', 'info'],
+    ['  ■ Compose orchestrates multi-container applications', 'info'],
+    ['  ■ Custom bridge networks enable DNS-based service discovery', 'info'],
+    ['  ■ Volumes persist data, bind mounts for dev, tmpfs for secrets', 'info'],
+    ['  ■ Security is layered — least privilege, image scanning, rootless', 'info'],
+    divider(),
+    tldr('Docker: ship, run, and manage applications anywhere. Images are layered templates, containers are isolated processes, Compose wires services together, and the open container ecosystem runs it all.'),
+  ]
+};
+
+function run(cmd) {
+  const parts = cmd.trim().split(/\s+/);
+  const command = parts[0].toLowerCase();
+
+  w('<span style="color:var(--prompt)">$</span> ' + cmd, 'prompt-line');
+
+  if (command === 'help') { writeLines(topics.help.content); }
+  else if (command === 'basics') { writeLines(topics.basics.content); }
+  else if (command === 'images') { writeLines(topics.images.content); }
+  else if (command === 'containers') { writeLines(topics.containers.content); }
+  else if (command === 'dockerfile') { writeLines(topics.dockerfile.content); }
+  else if (command === 'compose') { writeLines(topics.compose.content); }
+  else if (command === 'networking') { writeLines(topics.networking.content); }
+  else if (command === 'storage') { writeLines(topics.storage.content); }
+  else if (command === 'security') { writeLines(topics.security.content); }
+  else if (command === 'diagram') { writeLines(topics.diagram.content); }
+  else if (command === 'clear') {
+    term.innerHTML = '';
+  }
+  else if (command === '') { }
+  else {
+    w('Unknown command: ' + command, 'error');
+    w('Type "help" to see all available commands.', 'info');
+  }
+  scrollBottom();
+}
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const cmd = input.value.trim();
+    input.value = '';
+    if (cmd) run(cmd);
+  }
+});
+
+const bootLines = [
+  ['<span style="color:var(--green)">╔═══════════════════════════════════════════════╗</span>', ''],
+  ['<span style="color:var(--green)">║</span>     <span style="color:var(--cyan)">DOCKER INTERACTIVE LAB</span>                  <span style="color:var(--green)">║</span>', ''],
+  ['<span style="color:var(--green)">╚═══════════════════════════════════════════════╝</span>', ''],
+  '',
+  ['Welcome, student. This terminal is your Docker sandbox.', 'info'],
+  ['Every command teaches a concept using: <span style="color:var(--yellow)">Problem → Mechanism → Visual → Code → TL;DR</span>', 'info'],
+  '',
+  ['Type <span style="color:var(--cyan)">help</span> to begin, or try <span style="color:var(--cyan)">basics</span>, <span style="color:var(--cyan)">images</span>, <span style="color:var(--cyan)">containers</span>, <span style="color:var(--cyan)">diagram</span>', 'cyan'],
+];
+
+let bootIdx = 0;
+function typeBoot() {
+  if (bootIdx < bootLines.length) {
+    const l = bootLines[bootIdx];
+    if (typeof l === 'string') { w(l); }
+    else { w(l[0], l[1]); }
+    bootIdx++;
+    setTimeout(typeBoot, 60);
+  } else {
+    w('', '');
+    w('<span style="color:var(--green)">System ready. <span style="color:var(--cyan)">$ █</span>', '');
+    scrollBottom();
+  }
+}
+
+setTimeout(typeBoot, 200);
+
+document.addEventListener('click', () => input.focus());
+</script>
+</body>
+</html>

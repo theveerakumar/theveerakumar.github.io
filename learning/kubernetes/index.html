@@ -52,6 +52,11 @@ body{background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direc
 <span onclick="run('basics')">basics</span>
 <span onclick="run('pods')">pods</span>
 <span onclick="run('workloads')">workloads</span>
+<span onclick="run('deployment')">deployment</span>
+<span onclick="run('replicaset')">replicaset</span>
+<span onclick="run('daemonset')">daemonset</span>
+<span onclick="run('statefulset')">statefulset</span>
+<span onclick="run('job')">job</span>
 <span onclick="run('services')">services</span>
 <span onclick="run('config')">config</span>
 <span onclick="run('storage')">storage</span>
@@ -103,7 +108,8 @@ topics.help = {
     ['FUNDAMENTALS', 'section'],
     ['  basics      — What is K8s, architecture, control plane vs nodes', 'info'],
     ['  pods        — Pods: the smallest deployable unit, containers, init containers', 'info'],
-    ['  workloads   — Deployments, StatefulSets, DaemonSets, Jobs, CronJobs', 'info'],
+    ['  workloads   — Deployments, ReplicaSets, DaemonSets, StatefulSets, Jobs, CronJobs', 'info'],
+    ['                (aliases: deployment, replicaset, daemonset, statefulset, job, cronjob)', 'info'],
     divider(),
     ['SERVICES & CONFIG', 'section'],
     ['  services    — Services, ClusterIP, NodePort, LoadBalancer, Ingress, DNS', 'info'],
@@ -1698,7 +1704,7 @@ function run(cmd) {
   if (command === 'help') { writeLines(topics.help.content); }
   else if (command === 'basics') { writeLines(topics.basics.content); }
   else if (command === 'pods') { writeLines(topics.pods.content); }
-  else if (command === 'workloads') { writeLines(topics.workloads.content); }
+  else if (command === 'workloads' || command === 'deployment' || command === 'replicaset' || command === 'daemonset' || command === 'statefulset' || command === 'job' || command === 'cronjob') { writeLines(topics.workloads.content); }
   else if (command === 'services') { writeLines(topics.services.content); }
   else if (command === 'config') { writeLines(topics.config.content); }
   else if (command === 'storage') { writeLines(topics.storage.content); }
